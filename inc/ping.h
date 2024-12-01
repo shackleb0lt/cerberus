@@ -23,4 +23,21 @@
 
 #ifndef PING_H
 #define PING_H
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <unistd.h>
+
+#include <time.h>
+#include <errno.h>
+
+#include <sys/socket.h>
+#include <netdb.h>
+
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <netinet/ip_icmp.h>
 #endif
