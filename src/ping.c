@@ -68,8 +68,8 @@ void print_stats(const char *hostname)
     uint32_t pkt_loss = 0;
     pkt_loss = (pkt_sent - pkt_recv) * 100 / pkt_sent;
     printf("\n--- %s ping statistics ---\n", hostname);
-    printf("%d packets sent, %d%% packet loss, time %lums\n", pkt_sent, pkt_loss, (uint64_t)tot_time);
-    printf("rtt min/avg/max = %.3lf/%.3lf/%.3lf ms\n", min_time, avg_time/pkt_recv, max_time);
+    printf("%u packets transmitted, %u received, %u%% packet loss, time %lums\n", pkt_sent, pkt_recv,pkt_loss, (uint64_t)tot_time);
+    printf("rtt min/avg/max = %.3lf/%.3lf/%.3lf ms\n", min_time, avg_time / pkt_recv, max_time);
 }
 
 int register_sighandler()
@@ -104,12 +104,11 @@ int register_sighandler()
 
 int create_socket()
 {
-    int ret  = 0;
+    int ret = 0;
     int sock_fd = -1;
-    char *iface = "wlan0";
     struct timeval tv_out = {0};
-    tv_out.tv_sec = interval/ONE_SEC;
-    tv_out.tv_usec = interval%ONE_SEC;
+    tv_out.tv_sec = interval / ONE_SEC;
+    tv_out.tv_usec = interval % ONE_SEC;
 
     sock_fd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
     if (sock_fd < 0)
@@ -118,15 +117,16 @@ int create_socket()
         return -1;
     }
 
-    ret = setsockopt(sock_fd, SOL_SOCKET, SO_BINDTODEVICE, iface, (socklen_t) strlen(iface)); 
-    if (ret < 0)
-    {
-        perror("Binding to interface failed");
-        close(sock_fd);
-        return -1;
-    }
+    // char *iface = "wlan0";
+    // ret = setsockopt(sock_fd, SOL_SOCKET, SO_BINDTODEVICE, iface, (socklen_t) strlen(iface));
+    // if (ret < 0)
+    // {
+    //     perror("Binding to interface failed");
+    //     close(sock_fd);
+    //     return -1;
+    // }
 
-    ret = setsockopt(sock_fd, SOL_IP, IP_TTL, &ttl_val, sizeof(ttl_val)); 
+    ret = setsockopt(sock_fd, SOL_IP, IP_TTL, &ttl_val, sizeof(ttl_val));
     if (ret < 0)
     {
         perror("TTL option failed");
@@ -197,19 +197,22 @@ uint16_t inet_cksum(uint16_t *buffer, const uint32_t len)
     return (uint16_t)sum;
 }
 
-void ping_loop(char * ip_str, int sock_fd, struct sockaddr *addr)
+void ping_loop(int sock_fd, struct sockaddr *addr)
 {
     uint16_t seq_num = 1;
     ssize_t ret = 0;
     double delta = 0;
     struct icmp pkt = {0};
     char rbuffer[256];
-    int ip_hdr_len = 0;
+
+    struct iphdr *ip;
     struct icmp *recv_hdr = NULL;
     struct timespec time_start, time_end;
-
+    struct in_addr recv_addr;
+    static char ipstr[INET_ADDRSTRLEN] = {0};
     pkt.icmp_type = ICMP_ECHO;
     pkt.icmp_id = htons((uint16_t)getpid());
+
     while (is_run && pkt_sent < count_limit)
     {
         pkt.icmp_seq = seq_num++;
@@ -222,25 +225,30 @@ void ping_loop(char * ip_str, int sock_fd, struct sockaddr *addr)
         pkt_sent++;
         ret = recv(sock_fd, rbuffer, sizeof(rbuffer), 0);
         if (ret < 0)
+        {
             perror("recv");
+            continue;
+        }
         clock_gettime(CLOCK_MONOTONIC, &time_end);
 
-        ip_hdr_len = ((struct ip *)rbuffer)->ip_hl << 2;
-        recv_hdr = (struct icmp *)(rbuffer + ip_hdr_len);
+        ip = (struct iphdr *)rbuffer;
+        recv_hdr = (struct icmp *)(rbuffer + (ip->ihl << 2));
+        recv_addr.s_addr = ntohl(ip->saddr);
+        inet_ntop(AF_INET, &recv_addr, ipstr, INET_ADDRSTRLEN);
 
         if (recv_hdr->icmp_type == ICMP_ECHOREPLY && recv_hdr->icmp_code == 0)
         {
             if (!is_quiet)
             {
                 delta = (time_end.tv_sec - time_start.tv_sec) * 1000.0;
-                delta += (time_end.tv_nsec - time_start.tv_nsec)/1000000.0;
+                delta += (time_end.tv_nsec - time_start.tv_nsec) / 1000000.0;
                 if (min_time > delta)
                     min_time = delta;
                 if (max_time < delta)
                     max_time = delta;
-                
+
                 avg_time += delta;
-                printf("%ld bytes from %s: icmp_seq=%d time=%.2lfms\n", ret, ip_str, recv_hdr->icmp_seq, delta);
+                printf("%ld bytes from %s: icmp_seq=%d time=%.2lfms\n", ret, ipstr, recv_hdr->icmp_seq, delta);
             }
             pkt_recv++;
         }
@@ -248,9 +256,10 @@ void ping_loop(char * ip_str, int sock_fd, struct sockaddr *addr)
         {
             // Handle error message
             printf("Packet received with ICMP type %d code %d\n", recv_hdr->icmp_type, recv_hdr->icmp_code);
+            break;
         }
 
-        usleep(interval - (delta*1000));
+        usleep(interval);
     }
 }
 
@@ -293,7 +302,7 @@ int main(int argc, char *argv[])
                     print_usage();
                     return EXIT_FAILURE;
                 }
-                interval = ONE_MSEC * (uint32_t) strtoul(optarg, NULL, 10);
+                interval = ONE_MSEC * (uint32_t)strtoul(optarg, NULL, 10);
                 if (interval == 0 && errno != 0)
                 {
                     printf("Error: Invalid interval %s\n", optarg);
@@ -310,14 +319,14 @@ int main(int argc, char *argv[])
                     print_usage();
                     return EXIT_FAILURE;
                 }
-                ttl_val = (uint32_t) strtoul(optarg, NULL, 10);
+                ttl_val = (uint32_t)strtoul(optarg, NULL, 10);
                 if (interval == 0 && errno != 0)
                 {
                     printf("Error: Invalid interval %s\n", optarg);
                     print_usage();
                     return EXIT_FAILURE;
                 }
-                if(ttl_val > 64)
+                if (ttl_val > 64)
                     ttl_val = 64;
                 break;
             }
@@ -343,8 +352,8 @@ int main(int argc, char *argv[])
             }
         }
     }
-    
-    if(argv[optind] == NULL)
+
+    if (argv[optind] == NULL)
     {
         printf("Missing desination argument\n");
         print_usage();
@@ -361,14 +370,14 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
 
     ip_str = string_to_ip(hostname, &(addr.sin_addr));
-    if(ip_str == NULL)
+    if (ip_str == NULL)
     {
         close(sock_fd);
         return EXIT_FAILURE;
     }
 
     printf("PING %s (%s)\n", hostname, ip_str);
-    ping_loop(ip_str, sock_fd, (struct sockaddr *)&addr);
+    ping_loop(sock_fd, (struct sockaddr *)&addr);
     print_stats(hostname);
 
     close(sock_fd);
