@@ -5,8 +5,7 @@ host=${1:-"1.1.1.1"}
 
 make clean
 make release
-sudo chown root:root bld/cerberus
-sudo chmod u+s bld/cerberus
+sudo setcap cap_net_raw+ep bld/cerberus
 
 echo "_____________________________________"
 bld/cerberus $host
