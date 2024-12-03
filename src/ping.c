@@ -72,6 +72,57 @@ void print_stats(const char *hostname)
     printf("rtt min/avg/max = %.3lf/%.3lf/%.3lf ms\n", min_time, avg_time / pkt_recv, max_time);
 }
 
+void handle_icmp_error(char *ipstr, struct icmp * hdr)
+{
+    printf("From %s icmp_seq=%d ", ipstr, hdr->icmp_seq);
+    if(hdr->icmp_type == ICMP_DEST_UNREACH)
+    {
+        switch (hdr->icmp_code)
+        {
+            case ICMP_NET_UNREACH:
+                printf("Network Unreachable\n");
+                break;
+            case ICMP_HOST_UNREACH:
+                printf("Host Unreachable\n");
+                break;
+            case ICMP_PROT_UNREACH:
+                printf("Protocol Unreachable\n");
+                break;
+            case ICMP_PORT_UNREACH:
+                printf("Port Unreachable\n");
+                break;
+            case ICMP_FRAG_NEEDED:
+                printf("Fragmentation Needed And DF Set\n");
+                break;
+            case ICMP_SR_FAILED:
+                printf("Source Route Failed\n");
+                break;
+            default:
+                printf("Received type: %d code: %d\n", hdr->icmp_type, hdr->icmp_code);
+                break;
+        }
+    }
+    else if(hdr->icmp_type == ICMP_TIME_EXCEEDED)
+    {
+        switch (hdr->icmp_code)
+        {
+            case ICMP_EXC_TTL:
+                printf("Time To Live Exceeded In Transit\n");
+                break;
+            case ICMP_EXC_FRAGTIME:
+                printf("Fragment Reassembly Time Exceeded\n");
+                break;
+            default:
+                printf("Received type: %d code: %d\n", hdr->icmp_type, hdr->icmp_code);
+                break;
+        }
+    }
+    else
+    {
+        printf("Received type: %d code: %d\n", hdr->icmp_type, hdr->icmp_code);
+    }
+    
+}
 int register_sighandler()
 {
     struct sigaction sa;
@@ -221,22 +272,27 @@ void ping_loop(int sock_fd, struct sockaddr *addr)
         clock_gettime(CLOCK_MONOTONIC, &time_start);
         ret = sendto(sock_fd, &pkt, ICMP_SSIZE, 0, addr, SOCKADDR_SIZE);
         if (ret <= 0)
+        {
             perror("sendto");
+            continue;
+        }
         pkt_sent++;
         ret = recv(sock_fd, rbuffer, sizeof(rbuffer), 0);
         if (ret < 0)
         {
-            perror("recv");
+            if(errno != EAGAIN && errno != EWOULDBLOCK)
+                perror("recv");
+
             continue;
         }
         clock_gettime(CLOCK_MONOTONIC, &time_end);
 
         ip = (struct iphdr *)rbuffer;
         recv_hdr = (struct icmp *)(rbuffer + (ip->ihl << 2));
-        recv_addr.s_addr = ntohl(ip->saddr);
+        recv_addr.s_addr = ip->saddr;
         inet_ntop(AF_INET, &recv_addr, ipstr, INET_ADDRSTRLEN);
 
-        if (recv_hdr->icmp_type == ICMP_ECHOREPLY && recv_hdr->icmp_code == 0)
+        if ((recv_hdr->icmp_type == ICMP_ECHO || recv_hdr->icmp_type == ICMP_ECHOREPLY) && recv_hdr->icmp_code == 0)
         {
             if (!is_quiet)
             {
@@ -254,8 +310,7 @@ void ping_loop(int sock_fd, struct sockaddr *addr)
         }
         else
         {
-            // Handle error message
-            printf("Packet received with ICMP type %d code %d\n", recv_hdr->icmp_type, recv_hdr->icmp_code);
+            handle_icmp_error(ipstr, recv_hdr);
             break;
         }
 
