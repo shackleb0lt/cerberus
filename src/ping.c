@@ -123,6 +123,7 @@ void handle_icmp_error(char *ipstr, struct icmp * hdr)
     }
     
 }
+
 int register_sighandler()
 {
     struct sigaction sa;
@@ -294,16 +295,17 @@ void ping_loop(int sock_fd, struct sockaddr *addr)
 
         if ((recv_hdr->icmp_type == ICMP_ECHO || recv_hdr->icmp_type == ICMP_ECHOREPLY) && recv_hdr->icmp_code == 0)
         {
+            delta = (time_end.tv_sec - time_start.tv_sec) * 1000.0;
+            delta += (time_end.tv_nsec - time_start.tv_nsec) / 1000000.0;
+            if (min_time > delta)
+                min_time = delta;
+            if (max_time < delta)
+                max_time = delta;
+
+            avg_time += delta;
+
             if (!is_quiet)
             {
-                delta = (time_end.tv_sec - time_start.tv_sec) * 1000.0;
-                delta += (time_end.tv_nsec - time_start.tv_nsec) / 1000000.0;
-                if (min_time > delta)
-                    min_time = delta;
-                if (max_time < delta)
-                    max_time = delta;
-
-                avg_time += delta;
                 printf("%ld bytes from %s: icmp_seq=%d time=%.2lfms\n", ret, ipstr, recv_hdr->icmp_seq, delta);
             }
             pkt_recv++;
