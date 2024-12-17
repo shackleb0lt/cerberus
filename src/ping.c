@@ -24,11 +24,15 @@
 #include "ping.h"
 #include <signal.h>
 
-#define ICMP_SSIZE sizeof(struct icmp)
+#define IPHDR_SIZE sizeof(struct iphdr)
+#define ICMPHDR_SIZE sizeof(struct icmphdr)
+
 #define SOCKADDR_SIZE sizeof(struct sockaddr_in)
+#define MTU_SIZE 1500
 #define DEFAULT_COUNT 1000
 #define ONE_SEC 1000000
 #define ONE_MSEC 1000
+
 bool is_run = true;
 bool is_quiet = false;
 char *exe_name = NULL;
@@ -65,19 +69,19 @@ void handle_signal(int sig)
 
 void print_stats(const char *hostname)
 {
-    uint32_t pkt_loss = 0;
-    pkt_loss = (pkt_sent - pkt_recv) * 100 / pkt_sent;
+    double pkt_loss = 0;
+    pkt_loss = (pkt_sent - pkt_recv) * 100.0 / pkt_sent;
     printf("\n--- %s ping statistics ---\n", hostname);
-    printf("%u packets transmitted, %u received, %u%% packet loss, time %lums\n", pkt_sent, pkt_recv,pkt_loss, (uint64_t)tot_time);
+    printf("%u packets transmitted, %u received, %.2lf%% packet loss, time %lums\n", pkt_sent, pkt_recv,pkt_loss, (uint64_t)tot_time);
     printf("rtt min/avg/max = %.3lf/%.3lf/%.3lf ms\n", min_time, avg_time / pkt_recv, max_time);
 }
 
-void handle_icmp_error(char *ipstr, struct icmp * hdr)
+void handle_icmp_error(char *ipstr, struct icmphdr * hdr)
 {
-    printf("From %s icmp_seq=%d ", ipstr, hdr->icmp_seq);
-    if(hdr->icmp_type == ICMP_DEST_UNREACH)
+    printf("From %s icmp_seq=%d ", ipstr, hdr->un.echo.sequence);
+    if(hdr->type == ICMP_DEST_UNREACH)
     {
-        switch (hdr->icmp_code)
+        switch (hdr->code)
         {
             case ICMP_NET_UNREACH:
                 printf("Network Unreachable\n");
@@ -98,13 +102,13 @@ void handle_icmp_error(char *ipstr, struct icmp * hdr)
                 printf("Source Route Failed\n");
                 break;
             default:
-                printf("Received type: %d code: %d\n", hdr->icmp_type, hdr->icmp_code);
+                printf("Received type: %d code: %d\n", hdr->type, hdr->code);
                 break;
         }
     }
-    else if(hdr->icmp_type == ICMP_TIME_EXCEEDED)
+    else if(hdr->type == ICMP_TIME_EXCEEDED)
     {
-        switch (hdr->icmp_code)
+        switch (hdr->code)
         {
             case ICMP_EXC_TTL:
                 printf("Time To Live Exceeded In Transit\n");
@@ -113,13 +117,13 @@ void handle_icmp_error(char *ipstr, struct icmp * hdr)
                 printf("Fragment Reassembly Time Exceeded\n");
                 break;
             default:
-                printf("Received type: %d code: %d\n", hdr->icmp_type, hdr->icmp_code);
+                printf("Received type: %d code: %d\n", hdr->type, hdr->code);
                 break;
         }
     }
     else
     {
-        printf("Received type: %d code: %d\n", hdr->icmp_type, hdr->icmp_code);
+        printf("Received type: %d code: %d\n", hdr->type, hdr->code);
     }
     
 }
@@ -169,19 +173,12 @@ int create_socket()
         return -1;
     }
 
-    // char *iface = "wlan0";
-    // ret = setsockopt(sock_fd, SOL_SOCKET, SO_BINDTODEVICE, iface, (socklen_t) strlen(iface));
-    // if (ret < 0)
-    // {
-    //     perror("Binding to interface failed");
-    //     close(sock_fd);
-    //     return -1;
-    // }
-
-    ret = setsockopt(sock_fd, SOL_IP, IP_TTL, &ttl_val, sizeof(ttl_val));
-    if (ret < 0)
+    // Enable IP_HDRINCL to tell the kernel we are including the IP header
+    int opt = 1;
+    ret = setsockopt(sock_fd, IPPROTO_IP, IP_HDRINCL, &opt, sizeof(int)); 
+    if ( ret < 0)
     {
-        perror("TTL option failed");
+        perror("Error setting IP_HDRINCL");
         close(sock_fd);
         return -1;
     }
@@ -249,7 +246,7 @@ uint16_t inet_cksum(uint16_t *buffer, const uint32_t len)
     return (uint16_t)sum;
 }
 
-void ping_loop(int sock_fd, struct sockaddr *addr)
+void ping_loop(int sock_fd, struct sockaddr_in *addr)
 {
     uint16_t seq_num = 1;
     ssize_t ret = 0;
@@ -288,12 +285,13 @@ void ping_loop(int sock_fd, struct sockaddr *addr)
         }
         clock_gettime(CLOCK_MONOTONIC, &time_end);
 
-        ip = (struct iphdr *)rbuffer;
-        recv_hdr = (struct icmp *)(rbuffer + (ip->ihl << 2));
+        struct iphdr * ip = (struct iphdr *)buf_in;
+        struct icmphdr *recv_hdr = (struct icmphdr *)(buf_in + (ip->ihl << 2));
+
         recv_addr.s_addr = ip->saddr;
         inet_ntop(AF_INET, &recv_addr, ipstr, INET_ADDRSTRLEN);
 
-        if ((recv_hdr->icmp_type == ICMP_ECHO || recv_hdr->icmp_type == ICMP_ECHOREPLY) && recv_hdr->icmp_code == 0)
+        if ((recv_hdr->type == ICMP_ECHO || recv_hdr->type == ICMP_ECHOREPLY) && recv_hdr->code == 0)
         {
             delta = (time_end.tv_sec - time_start.tv_sec) * 1000.0;
             delta += (time_end.tv_nsec - time_start.tv_nsec) / 1000000.0;
@@ -306,7 +304,7 @@ void ping_loop(int sock_fd, struct sockaddr *addr)
 
             if (!is_quiet)
             {
-                printf("%ld bytes from %s: icmp_seq=%d time=%.2lfms\n", ret, ipstr, recv_hdr->icmp_seq, delta);
+                printf("%ld bytes from %s: icmp_seq=%d time=%.2lfms\n", ret, ipstr, recv_hdr->un.echo.sequence, delta);
             }
             pkt_recv++;
         }
@@ -434,7 +432,7 @@ int main(int argc, char *argv[])
     }
 
     printf("PING %s (%s)\n", hostname, ip_str);
-    ping_loop(sock_fd, (struct sockaddr *)&addr);
+    ping_loop(sock_fd, &addr);
     print_stats(hostname);
 
     close(sock_fd);
