@@ -48,6 +48,9 @@ double min_time = ONE_SEC;
 double max_time = 0;
 double tot_time = 0;
 
+/**
+ * Prints the usage of the executable binary
+ */
 void print_usage()
 {
     printf("\nUsage:\n");
@@ -61,21 +64,36 @@ void print_usage()
     printf("  %-18s show usage and exit\n", "-h");
 }
 
+/**
+ * Catches the registered signals and ignores repeated signals
+ * Sets the is_run flag to false effectively ending the ping loop
+ */
 void handle_signal(int sig)
 {
-    (void)sig;
+    struct sigaction sa;
     is_run = false;
+    sa.sa_flags = 0;
+    sa.sa_handler = SIG_IGN;
+    sigemptyset(&sa.sa_mask);
+    sigaction(sig, &sa, NULL);
 }
 
+/**
+ * Prints the statistics of the outoging and incoming ICMP packets.
+ */
 void print_stats(const char *hostname)
 {
     double pkt_loss = 0;
     pkt_loss = (pkt_sent - pkt_recv) * 100.0 / pkt_sent;
     printf("\n--- %s ping statistics ---\n", hostname);
-    printf("%u packets transmitted, %u received, %.2lf%% packet loss, time %lums\n", pkt_sent, pkt_recv,pkt_loss, (uint64_t)tot_time);
+    printf("%u packets transmitted, %u received, %.2lf%% packet loss, time %lums\n",
+           pkt_sent, pkt_recv, pkt_loss, (uint64_t)tot_time);
     printf("rtt min/avg/max = %.3lf/%.3lf/%.3lf ms\n", min_time, avg_time / pkt_recv, max_time);
 }
 
+/**
+ * Prints the type of error reported by ICMP reply packet
+ */
 void handle_icmp_error(char *ipstr, struct icmphdr * hdr)
 {
     printf("From %s icmp_seq=%d ", ipstr, hdr->un.echo.sequence);
@@ -246,36 +264,63 @@ uint16_t inet_cksum(uint16_t *buffer, const uint32_t len)
     return (uint16_t)sum;
 }
 
+void fill_packet_headers(char *buf_out, struct sockaddr_in *addr)
+{
+    struct iphdr *ip_hdr = (struct iphdr *) buf_out;
+    struct icmphdr *icmp_hdr = (struct icmphdr *)(buf_out + IPHDR_SIZE);
+
+    ip_hdr->ihl = 5;
+    ip_hdr->version = 4;
+    ip_hdr->tot_len = htons(IPHDR_SIZE + ICMPHDR_SIZE);
+    ip_hdr->id = htons((uint16_t)getpid());
+
+    ip_hdr->ttl = ttl_val;
+    ip_hdr->protocol = IPPROTO_ICMP;
+
+    ip_hdr->saddr = inet_addr("192.168.0.181");
+    ip_hdr->daddr = addr->sin_addr.s_addr;
+    
+    ip_hdr->check = inet_cksum((unsigned short *)ip_hdr, IPHDR_SIZE >> 1);
+
+    icmp_hdr->type = ICMP_ECHO;
+    icmp_hdr->un.echo.id = htons((uint16_t)getpid());
+}
+
 void ping_loop(int sock_fd, struct sockaddr_in *addr)
 {
-    uint16_t seq_num = 1;
     ssize_t ret = 0;
     double delta = 0;
-    struct icmp pkt = {0};
-    char rbuffer[256];
+    uint16_t seq_num = 0;
 
-    struct iphdr *ip;
-    struct icmp *recv_hdr = NULL;
-    struct timespec time_start, time_end;
-    struct in_addr recv_addr;
-    static char ipstr[INET_ADDRSTRLEN] = {0};
-    pkt.icmp_type = ICMP_ECHO;
-    pkt.icmp_id = htons((uint16_t)getpid());
+    char buf_in[MTU_SIZE] = {0};
+    char buf_out[MTU_SIZE] = {0};
+    char ipstr[INET_ADDRSTRLEN] = {0};
+
+    struct iphdr *ip_hdr = NULL;
+    struct icmphdr *icmp_hdr = NULL;
+
+    struct timespec time_end = {0};
+    struct timespec time_start = {0};
+    struct in_addr recv_addr = {0};
+
+    fill_packet_headers(buf_out, addr);
 
     while (is_run && pkt_sent < count_limit)
     {
-        pkt.icmp_seq = seq_num++;
-        pkt.icmp_cksum = 0;
-        pkt.icmp_cksum = inet_cksum((uint16_t *)&pkt, ICMP_SSIZE >> 1);
+        icmp_hdr = (struct icmphdr *)(buf_out + IPHDR_SIZE);
+        icmp_hdr->un.echo.sequence = seq_num++;
+        icmp_hdr->checksum = 0;
+        icmp_hdr->checksum = inet_cksum((uint16_t *)icmp_hdr, ICMPHDR_SIZE >> 1);
+
         clock_gettime(CLOCK_MONOTONIC, &time_start);
-        ret = sendto(sock_fd, &pkt, ICMP_SSIZE, 0, addr, SOCKADDR_SIZE);
+        ret = sendto(sock_fd, buf_out, IPHDR_SIZE + ICMPHDR_SIZE, 0, (struct sockaddr *) addr, SOCKADDR_SIZE);
         if (ret <= 0)
         {
             perror("sendto");
             continue;
         }
         pkt_sent++;
-        ret = recv(sock_fd, rbuffer, sizeof(rbuffer), 0);
+        ret = recv(sock_fd, buf_in, MTU_SIZE, 0);
         if (ret < 0)
         {
             if(errno != EAGAIN && errno != EWOULDBLOCK)
@@ -285,13 +330,13 @@ void ping_loop(int sock_fd, struct sockaddr_in *addr)
         }
         clock_gettime(CLOCK_MONOTONIC, &time_end);
 
-        struct iphdr * ip = (struct iphdr *)buf_in;
-        struct icmphdr *recv_hdr = (struct icmphdr *)(buf_in + (ip->ihl << 2));
+        ip_hdr = (struct iphdr *)buf_in;
+        icmp_hdr = (struct icmphdr *)(buf_in + (ip_hdr->ihl << 2));
 
-        recv_addr.s_addr = ip->saddr;
+        recv_addr.s_addr = ip_hdr->saddr;
         inet_ntop(AF_INET, &recv_addr, ipstr, INET_ADDRSTRLEN);
 
-        if ((recv_hdr->type == ICMP_ECHO || recv_hdr->type == ICMP_ECHOREPLY) && recv_hdr->code == 0)
+        if ((icmp_hdr->type == ICMP_ECHO || icmp_hdr->type == ICMP_ECHOREPLY) && icmp_hdr->code == 0)
         {
             delta = (time_end.tv_sec - time_start.tv_sec) * 1000.0;
             delta += (time_end.tv_nsec - time_start.tv_nsec) / 1000000.0;
@@ -304,18 +349,32 @@ void ping_loop(int sock_fd, struct sockaddr_in *addr)
 
             if (!is_quiet)
             {
-                printf("%ld bytes from %s: icmp_seq=%d time=%.2lfms\n", ret, ipstr, recv_hdr->un.echo.sequence, delta);
+                printf("%ld bytes from %s: icmp_seq=%d time=%.2lfms\n", ret, ipstr, icmp_hdr->un.echo.sequence, delta);
             }
             pkt_recv++;
         }
         else
         {
-            handle_icmp_error(ipstr, recv_hdr);
+            handle_icmp_error(ipstr, icmp_hdr);
             break;
         }
 
         usleep(interval);
     }
+}
+
+bool is_integer(char *arg)
+{
+    uint32_t index = 0;
+    if (arg == NULL || *arg == '\0')
+        return false;
+
+    for (index = 0; arg[index] != '\0'; index++)
+    {
+        if (arg[index] < '0' || arg[index] > '9')
+            return false;
+    }
+    return true;
 }
 
 int main(int argc, char *argv[])
@@ -334,53 +393,35 @@ int main(int argc, char *argv[])
         {
             case 'c':
             {
-                if (optarg == NULL)
+                if (is_integer(optarg) == false)
                 {
                     printf("Error: count not provided\n");
                     print_usage();
                     return EXIT_FAILURE;
                 }
                 count_limit = strtoull(optarg, NULL, 10);
-                if (count_limit == 0 && errno != 0)
-                {
-                    printf("Error: Invalid count %s\n", optarg);
-                    print_usage();
-                    return EXIT_FAILURE;
-                }
                 break;
             }
             case 'i':
             {
-                if (optarg == NULL)
+                if (is_integer(optarg) == false)
                 {
                     printf("Error: Interval not provided\n");
                     print_usage();
                     return EXIT_FAILURE;
                 }
                 interval = ONE_MSEC * (uint32_t)strtoul(optarg, NULL, 10);
-                if (interval == 0 && errno != 0)
-                {
-                    printf("Error: Invalid interval %s\n", optarg);
-                    print_usage();
-                    return EXIT_FAILURE;
-                }
                 break;
             }
             case 't':
             {
-                if (optarg == NULL)
+                if (is_integer(optarg) == false)
                 {
                     printf("Error: Interval not provided\n");
                     print_usage();
                     return EXIT_FAILURE;
                 }
                 ttl_val = (uint32_t)strtoul(optarg, NULL, 10);
-                if (interval == 0 && errno != 0)
-                {
-                    printf("Error: Invalid interval %s\n", optarg);
-                    print_usage();
-                    return EXIT_FAILURE;
-                }
                 if (ttl_val > 64)
                     ttl_val = 64;
                 break;
