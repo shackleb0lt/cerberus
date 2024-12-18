@@ -234,7 +234,7 @@ int create_socket()
  * and stores it in addr pointer
  * Also returns a static string which hold presentation form
  */
-char *string_to_ip(const char *input, struct in_addr *addr)
+char *get_dest_addr(const char *input, struct in_addr *dest_addr)
 {
     int ret = 0;
     struct addrinfo hint;
@@ -242,7 +242,7 @@ char *string_to_ip(const char *input, struct in_addr *addr)
     static char ipstr[INET_ADDRSTRLEN] = {0};
 
     // Check if string is of the form "X.X.X.X"
-    ret = inet_pton(AF_INET, input, addr);
+    ret = inet_pton(AF_INET, input, dest_addr);
     if (ret == 1)
     {
         strncpy(ipstr, input, INET_ADDRSTRLEN - 1);
@@ -262,11 +262,57 @@ char *string_to_ip(const char *input, struct in_addr *addr)
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(ret));
         return NULL;
     }
-    addr->s_addr = ((struct sockaddr_in *)res->ai_addr)->sin_addr.s_addr;
+    dest_addr->s_addr = ((struct sockaddr_in *)res->ai_addr)->sin_addr.s_addr;
     freeaddrinfo(res);
     // Convert the ip adddress to presentation form to be printed
-    inet_ntop(AF_INET, addr, ipstr, INET_ADDRSTRLEN);
+    inet_ntop(AF_INET, dest_addr, ipstr, INET_ADDRSTRLEN);
     return ipstr;
+}
+
+/**
+ * Work around to retreives the source IP address by
+ * attempting to connect to a destination port
+ * since the socet used is UDP no packets are actually sent
+ */
+int get_src_addr(struct in_addr *src_addr, struct in_addr *dest_addr)
+{
+    int sock_fd = -1;
+    struct sockaddr_in addr = {0};
+    struct sockaddr_in local_addr;
+    socklen_t addr_len = sizeof(local_addr);
+
+    // Create a socket
+    sock_fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock_fd < 0)
+    {
+        perror("UDP Socket creation failed");
+        return -1;
+    }
+
+    // Set up the destination address
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(80); // Port doesn't matter
+    addr.sin_addr.s_addr = dest_addr->s_addr;
+
+    // Connect to the target (no data is sent)
+    if (connect(sock_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0)
+    {
+        perror("Connect failed");
+        close(sock_fd);
+        return -1;
+    }
+
+    // Get the local interface used for the connection
+    if (getsockname(sock_fd, (struct sockaddr *)&local_addr, &addr_len) < 0)
+    {
+        perror("getsockname failed");
+        close(sock_fd);
+        return -1;
+    }
+    
+    src_addr->s_addr = local_addr.sin_addr.s_addr;
+    close(sock_fd);
+    return 0;
 }
 
 /**
@@ -290,7 +336,7 @@ uint16_t inet_cksum(uint16_t *buffer, const uint32_t len)
 /**
  * Function to fill ipv4 and icmp headers
  */
-void fill_packet_headers(char *buf_out, struct sockaddr_in *addr)
+void fill_packet_headers(char *buf_out, struct in_addr *src_addr, struct in_addr *dest_addr)
 {
     struct iphdr *ip_hdr = (struct iphdr *) buf_out;
     struct icmphdr *icmp_hdr = (struct icmphdr *)(buf_out + IPHDR_SIZE);
@@ -303,8 +349,8 @@ void fill_packet_headers(char *buf_out, struct sockaddr_in *addr)
     ip_hdr->ttl = ttl_val;
     ip_hdr->protocol = IPPROTO_ICMP;
 
-    ip_hdr->saddr = inet_addr("192.168.0.181");
-    ip_hdr->daddr = addr->sin_addr.s_addr;
+    ip_hdr->saddr = src_addr->s_addr;
+    ip_hdr->daddr = dest_addr->s_addr;
     
     ip_hdr->check = inet_cksum((unsigned short *)ip_hdr, IPHDR_SIZE >> 1);
 
@@ -315,7 +361,7 @@ void fill_packet_headers(char *buf_out, struct sockaddr_in *addr)
 /**
  * Main loop which sends and receives the ICMP packets
  */
-void ping_loop(int sock_fd, struct sockaddr_in *addr)
+void ping_loop(int sock_fd, struct in_addr *src_addr, struct in_addr *dest_addr)
 {
     ssize_t ret = 0;
     double delta = 0;
@@ -325,6 +371,8 @@ void ping_loop(int sock_fd, struct sockaddr_in *addr)
     char buf_out[MTU_SIZE] = {0};
     char ipstr[INET_ADDRSTRLEN] = {0};
 
+    struct sockaddr_in send_addr = {0};
+
     struct iphdr *ip_hdr = NULL;
     struct icmphdr *icmp_hdr = NULL;
 
@@ -332,7 +380,8 @@ void ping_loop(int sock_fd, struct sockaddr_in *addr)
     struct timespec time_start = {0};
     struct in_addr recv_addr = {0};
 
-    fill_packet_headers(buf_out, addr);
+    send_addr.sin_addr.s_addr = dest_addr->s_addr;
+    fill_packet_headers(buf_out, src_addr, dest_addr);
 
     while (is_run && pkt_sent < count_limit)
     {
@@ -343,7 +392,7 @@ void ping_loop(int sock_fd, struct sockaddr_in *addr)
         icmp_hdr->checksum = inet_cksum((uint16_t *)icmp_hdr, ICMPHDR_SIZE >> 1);
 
         clock_gettime(CLOCK_MONOTONIC, &time_start);
-        ret = sendto(sock_fd, buf_out, IPHDR_SIZE + ICMPHDR_SIZE, 0, (struct sockaddr *) addr, SOCKADDR_SIZE);
+        ret = sendto(sock_fd, buf_out, IPHDR_SIZE + ICMPHDR_SIZE, 0, (struct sockaddr *) &send_addr, SOCKADDR_SIZE);
         if (ret <= 0)
         {
             perror("sendto");
@@ -419,7 +468,8 @@ int main(int argc, char *argv[])
     int sock_fd = 0;
     char *ip_str = NULL;
     char *hostname = NULL;
-    struct sockaddr_in addr = {0};
+    struct in_addr src_addr = {0};
+    struct in_addr dest_addr = {0};
 
     exe_name = argv[0];
 
@@ -501,15 +551,22 @@ int main(int argc, char *argv[])
     if (sock_fd < 0)
         return EXIT_FAILURE;
 
-    ip_str = string_to_ip(hostname, &(addr.sin_addr));
+    ip_str = get_dest_addr(hostname, &dest_addr);
     if (ip_str == NULL)
     {
         close(sock_fd);
         return EXIT_FAILURE;
     }
 
+    ret = get_src_addr(&src_addr, &dest_addr);
+    if(ret != 0)
+    {
+        close(sock_fd);
+        return EXIT_FAILURE;
+    }
+
     printf("PING %s (%s)\n", hostname, ip_str);
-    ping_loop(sock_fd, &addr);
+    ping_loop(sock_fd, &src_addr, &dest_addr);
     print_stats(hostname);
 
     close(sock_fd);
