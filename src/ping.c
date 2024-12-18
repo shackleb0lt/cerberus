@@ -46,7 +46,6 @@ uint32_t pkt_recv = 0;
 double avg_time = 0;
 double min_time = ONE_SEC;
 double max_time = 0;
-double tot_time = 0;
 
 /**
  * Prints the usage of the executable binary
@@ -86,8 +85,8 @@ void print_stats(const char *hostname)
     double pkt_loss = 0;
     pkt_loss = (pkt_sent - pkt_recv) * 100.0 / pkt_sent;
     printf("\n--- %s ping statistics ---\n", hostname);
-    printf("%u packets transmitted, %u received, %.2lf%% packet loss, time %lums\n",
-           pkt_sent, pkt_recv, pkt_loss, (uint64_t)tot_time);
+    printf("%u packets transmitted, %u received, %.2lf%% packet loss\n",
+           pkt_sent, pkt_recv, pkt_loss);
     printf("rtt min/avg/max = %.3lf/%.3lf/%.3lf ms\n", min_time, avg_time / pkt_recv, max_time);
 }
 
@@ -146,6 +145,10 @@ void handle_icmp_error(char *ipstr, struct icmphdr * hdr)
     
 }
 
+/**
+ * Function to register signal handler during initialisation
+ * allows to catch interrupt signals and gracefully exit
+ */
 int register_sighandler()
 {
     struct sigaction sa;
@@ -176,6 +179,10 @@ int register_sighandler()
     return 0;
 }
 
+/**
+ * Creates a RAW ipv4 socket allowing handcrafted 
+ * ipv4 header and icmp header, requires root priveleges
+ */
 int create_socket()
 {
     int ret = 0;
@@ -184,6 +191,7 @@ int create_socket()
     tv_out.tv_sec = interval / ONE_SEC;
     tv_out.tv_usec = interval % ONE_SEC;
 
+    // Open raw socket to send packets into 
     sock_fd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
     if (sock_fd < 0)
     {
@@ -201,6 +209,7 @@ int create_socket()
         return -1;
     }
 
+    // Set timeout at socket level to avoid handling it at user level
     ret = setsockopt(sock_fd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv_out, sizeof tv_out);
     if (ret < 0)
     {
@@ -209,6 +218,7 @@ int create_socket()
         return -1;
     }
 
+    // Drop root priveleges
     if (setgid(getgid()) != 0 || setuid(getuid()) != 0)
     {
         perror("Unable to drop priveleges");
@@ -219,6 +229,11 @@ int create_socket()
     return sock_fd;
 }
 
+/**
+ * Convert hostname or ipv4 address string to network form
+ * and stores it in addr pointer
+ * Also returns a static string which hold presentation form
+ */
 char *string_to_ip(const char *input, struct in_addr *addr)
 {
     int ret = 0;
@@ -226,6 +241,7 @@ char *string_to_ip(const char *input, struct in_addr *addr)
     struct addrinfo *res;
     static char ipstr[INET_ADDRSTRLEN] = {0};
 
+    // Check if string is of the form "X.X.X.X"
     ret = inet_pton(AF_INET, input, addr);
     if (ret == 1)
     {
@@ -233,6 +249,7 @@ char *string_to_ip(const char *input, struct in_addr *addr)
         return ipstr;
     }
 
+    // If a hostname was provided retreive it's ip address 
     memset(&hint, 0, sizeof(struct addrinfo));
     hint.ai_family = AF_INET;
     hint.ai_socktype = SOCK_RAW;
@@ -247,10 +264,16 @@ char *string_to_ip(const char *input, struct in_addr *addr)
     }
     addr->s_addr = ((struct sockaddr_in *)res->ai_addr)->sin_addr.s_addr;
     freeaddrinfo(res);
+    // Convert the ip adddress to presentation form to be printed
     inet_ntop(AF_INET, addr, ipstr, INET_ADDRSTRLEN);
     return ipstr;
 }
 
+/**
+ * Computes and returns the internet checksum,
+ * len stores the number of 2 byte elements whose 
+ * checksum has to be calculated
+ */
 uint16_t inet_cksum(uint16_t *buffer, const uint32_t len)
 {
     uint32_t sum = 0;
@@ -264,6 +287,9 @@ uint16_t inet_cksum(uint16_t *buffer, const uint32_t len)
     return (uint16_t)sum;
 }
 
+/**
+ * Function to fill ipv4 and icmp headers
+ */
 void fill_packet_headers(char *buf_out, struct sockaddr_in *addr)
 {
     struct iphdr *ip_hdr = (struct iphdr *) buf_out;
@@ -286,6 +312,9 @@ void fill_packet_headers(char *buf_out, struct sockaddr_in *addr)
     icmp_hdr->un.echo.id = htons((uint16_t)getpid());
 }
 
+/**
+ * Main loop which sends and receives the ICMP packets
+ */
 void ping_loop(int sock_fd, struct sockaddr_in *addr)
 {
     ssize_t ret = 0;
@@ -307,8 +336,9 @@ void ping_loop(int sock_fd, struct sockaddr_in *addr)
 
     while (is_run && pkt_sent < count_limit)
     {
+        // Uppdate ICMP sequence number and checksum
         icmp_hdr = (struct icmphdr *)(buf_out + IPHDR_SIZE);
-        icmp_hdr->un.echo.sequence = seq_num++;
+        icmp_hdr->un.echo.sequence = ++seq_num;
         icmp_hdr->checksum = 0;
         icmp_hdr->checksum = inet_cksum((uint16_t *)icmp_hdr, ICMPHDR_SIZE >> 1);
 
@@ -326,6 +356,7 @@ void ping_loop(int sock_fd, struct sockaddr_in *addr)
             if(errno != EAGAIN && errno != EWOULDBLOCK)
                 perror("recv");
 
+            // send next packet if timeout is reached
             continue;
         }
         clock_gettime(CLOCK_MONOTONIC, &time_end);
@@ -355,6 +386,8 @@ void ping_loop(int sock_fd, struct sockaddr_in *addr)
         }
         else
         {
+            // If response is not of type ECHOREPLY
+            // Parse the code for error and print to stdout
             handle_icmp_error(ipstr, icmp_hdr);
             break;
         }
@@ -363,6 +396,9 @@ void ping_loop(int sock_fd, struct sockaddr_in *addr)
     }
 }
 
+/**
+ * Function to verify if passed string is a number
+ */
 bool is_integer(char *arg)
 {
     uint32_t index = 0;
@@ -393,9 +429,9 @@ int main(int argc, char *argv[])
         {
             case 'c':
             {
-                if (is_integer(optarg) == false)
+                if (!is_integer(optarg))
                 {
-                    printf("Error: count not provided\n");
+                    printf("Error: Count not provided\n");
                     print_usage();
                     return EXIT_FAILURE;
                 }
@@ -404,7 +440,7 @@ int main(int argc, char *argv[])
             }
             case 'i':
             {
-                if (is_integer(optarg) == false)
+                if (!is_integer(optarg))
                 {
                     printf("Error: Interval not provided\n");
                     print_usage();
@@ -415,9 +451,9 @@ int main(int argc, char *argv[])
             }
             case 't':
             {
-                if (is_integer(optarg) == false)
+                if (!is_integer(optarg))
                 {
-                    printf("Error: Interval not provided\n");
+                    printf("Error: Time to live not provided\n");
                     print_usage();
                     return EXIT_FAILURE;
                 }
