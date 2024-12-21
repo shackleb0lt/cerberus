@@ -5,8 +5,8 @@ host=${1:-"1.1.1.1"}
 
 make clean
 make release
-sudo setcap cap_net_raw+ep bld/cerberus
+sudo setcap cap_net_raw+ep bld/ping
 
 echo "_____________________________________"
-bld/cerberus $host
+bld/ping $host
 echo "_____________________________________"

@@ -22,28 +22,28 @@ SRC_FILES := $(wildcard $(SRC_DIR)/*.c)
 SRC_OBJECTS := $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/%.o, $(SRC_FILES))
 
 # Final executable
-TARGET := $(BUILD_DIR)/cerberus
+PING_TARGET := $(BUILD_DIR)/ping
 
-# Default target
+# Default PING_TARGET
 .PHONY: all
 all: debug
 
-# Debug build target
+# Debug build PING_TARGET
 .PHONY: debug
 debug: CFLAGS += $(DEBUG_FLAGS)
 debug: LDFLAGS += $(LDLIBS)
-debug: $(TARGET)
+debug: $(PING_TARGET)
 
-# Release build target
+# Release build PING_TARGET
 .PHONY: release
 release: CFLAGS += $(RELEASE_FLAGS)
 release: LDFLAGS += $(RELEASE_LDFLAGS) $(LDLIBS)
-release: $(TARGET)
+release: $(PING_TARGET)
 
-# Build executable target
-$(TARGET): $(SRC_OBJECTS)
-	@echo "Linking executable $(TARGET)"
-	$(CC) $(CFLAGS) $(SRC_OBJECTS) $(LDFLAGS)-o $(TARGET)
+# Build executable PING_TARGET
+$(PING_TARGET): $(SRC_OBJECTS)
+	@echo "Linking executable $(PING_TARGET)"
+	$(CC) $(CFLAGS) $(SRC_OBJECTS) $(LDFLAGS)-o $(PING_TARGET)
 
 # Compile source object files
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
