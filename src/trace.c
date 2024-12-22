@@ -158,34 +158,34 @@ int main(int argc, char *argv[])
     {
         switch (ret)
         {
-        case 't':
-        {
-            if (!is_integer(optarg))
+            case 't':
             {
-                printf("Error: Time to live not provided\n");
+                if (!is_integer(optarg))
+                {
+                    printf("Error: Time to live not provided\n");
+                    print_usage();
+                    return EXIT_FAILURE;
+                }
+                max_ttl_val = (uint8_t)strtoul(optarg, NULL, 10);
+                if (max_ttl_val > 64)
+                    max_ttl_val = 64;
+                break;
+            }
+            case 'h':
+            {
+                print_usage();
+                return EXIT_SUCCESS;
+            }
+            case '?':
+            {
                 print_usage();
                 return EXIT_FAILURE;
             }
-            max_ttl_val = (uint8_t)strtoul(optarg, NULL, 10);
-            if (max_ttl_val > 64)
-                max_ttl_val = 64;
-            break;
-        }
-        case 'h':
-        {
-            print_usage();
-            return EXIT_SUCCESS;
-        }
-        case '?':
-        {
-            print_usage();
-            return EXIT_FAILURE;
-        }
-        default:
-        {
-            print_usage();
-            return EXIT_FAILURE;
-        }
+            default:
+            {
+                print_usage();
+                return EXIT_FAILURE;
+            }
         }
     }
 
