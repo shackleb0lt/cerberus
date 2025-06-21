@@ -24,32 +24,39 @@
 #include "common.h"
 
 bool is_run = true;
-bool is_quiet = false;
-char *exe_name = NULL;
-
-uint64_t count_limit = DEFAULT_COUNT;
-uint32_t interval = ONE_SEC;
-uint32_t pkt_sent = 0;
-uint32_t pkt_recv = 0;
-
-double avg_time = 0;
-double min_time = ONE_SEC;
-double max_time = 0;
 
 /**
  * Prints the usage of the executable binary
  */
-void print_usage()
+void print_usage(const char *exe_name)
 {
     printf("\nUsage:\n");
     printf("  %s [options] <destination>\n\n", exe_name);
     printf("Options:\n");
-    printf("  %-18s dns name or ip address\n", "<destination>");
-    printf("  %-18s number of packets sent\n", "-c <count>");
-    printf("  %-18s time in milliseconds between each ping\n", "-i <interval>");
-    printf("  %-18s configure time to live range 1 to 64\n", "-t <ttl value>");
+    printf("  %-18s hostname or IPv4 address\n", "<destination>");
+    printf("  %-18s Stop after <count> ping packets \n", "-c <count>");
+    printf("  %-18s milliseconds between each packet\n", "-i <interval>");
+    printf("  %-18s configure time to live (1-64)\n", "-t <ttl value>");
+    printf("  %-18s configure icmp data payload size\n", "-s <size>");
     printf("  %-18s quiet output\n", "-q");
+    printf("  %-18s verbose output\n", "-v");
     printf("  %-18s show usage and exit\n", "-h");
+}
+
+/**
+ * Prints the statistics of the outoging and incoming ICMP packets.
+ */
+void print_stats(session_param *args, char *hostname)
+{
+    double pkt_loss = 0;
+    pkt_loss = (args->pkt_sent - args->pkt_recv) * 100.0 / args->pkt_sent;
+    
+    printf("\n--- %s ping statistics ---\n", hostname);
+    printf("%lu packets transmitted, %lu received, %.2lf%% packet loss\n",
+        args->pkt_sent, args->pkt_recv, pkt_loss);
+
+    printf("rtt min/avg/max = %.3lf/%.3lf/%.3lf ms\n",
+        args->min_time, args->avg_time / args->pkt_recv, args->max_time);
 }
 
 /**
@@ -64,18 +71,6 @@ void handle_signal(int sig)
     sa.sa_handler = SIG_IGN;
     sigemptyset(&sa.sa_mask);
     sigaction(sig, &sa, NULL);
-}
-
-/**
- * Prints the statistics of the outoging and incoming ICMP packets.
- */
-void print_stats(const char *hostname)
-{
-    double pkt_loss = 0;
-    pkt_loss = (pkt_sent - pkt_recv) * 100.0 / pkt_sent;
-    printf("\n--- %s ping statistics ---\n", hostname);
-    printf("%u packets transmitted, %u received, %.2lf%% packet loss\n", pkt_sent, pkt_recv, pkt_loss);
-    printf("rtt min/avg/max = %.3lf/%.3lf/%.3lf ms\n", min_time, avg_time / pkt_recv, max_time);
 }
 
 /**
@@ -109,51 +104,56 @@ int register_sighandler()
         fprintf(stderr, "sigaction: SIGHUP");
         return -1;
     }
+    if (sigaction(SIGALRM, &sa, NULL) == -1)
+    {
+        fprintf(stderr, "sigaction: SIGHUP");
+        return -1;
+    }
     return 0;
 }
 
 /**
  * Main loop which sends and receives the ICMP packets
  */
-void ping_loop(int sock_fd, ipv4addr src_addr, ipv4addr dest_addr, uint8_t ttl_val)
+void ping_loop(session_param *args)
 {
     ssize_t ret = 0;
     double delta = 0;
-    uint16_t seq_num = 0;
 
-    char buf_in[MTU_SIZE] = {0};
-    char buf_out[MTU_SIZE] = {0};
-    char ipstr[INET_ADDRSTRLEN] = {0};
+    uint8_t buf_in[MTU_SIZE] = {0};
+    uint8_t buf_out[MTU_SIZE] = {0};
 
-    struct sockaddr_in send_addr = {0};
+    uint8_t *icmp_in = buf_in + IPV4_HDR_LEN;
+    uint8_t *icmp_out = buf_out + IPV4_HDR_LEN;
 
-    struct iphdr *ip_hdr = NULL;
-    struct icmphdr *icmp_hdr = NULL;
+    uint32_t tot_len = MIN_HDR_LEN + args->data_len;
 
     struct timespec time_end = {0};
     struct timespec time_start = {0};
-    struct in_addr recv_addr = {0};
+    struct sockaddr_in send_addr = {0};
 
-    send_addr.sin_addr.s_addr = dest_addr->s_addr;
-    fill_packet_headers(buf_out, src_addr, dest_addr, ttl_val);
+    send_addr.sin_addr.s_addr = args->dest_addr;
 
-    while (is_run && pkt_sent < count_limit)
+    fill_packet_headers(buf_out, args);
+
+    while (is_run && args->pkt_sent < args->count)
     {
-        // Uppdate ICMP sequence number and checksum
-        icmp_hdr = (struct icmphdr *)(buf_out + IPHDR_SIZE);
-        icmp_hdr->un.echo.sequence = ++seq_num;
-        icmp_hdr->checksum = 0;
-        icmp_hdr->checksum = inet_cksum((uint16_t *)icmp_hdr, ICMPHDR_SIZE >> 1);
+//         // Update ICMP sequence number and checksum
+        icmp_set_sequence_number(icmp_out, ++args->seq_num);
+        icmp_set_checksum(icmp_out, ICMP_HDR_LEN + args->data_len);
 
         clock_gettime(CLOCK_MONOTONIC, &time_start);
-        ret = sendto(sock_fd, buf_out, IPHDR_SIZE + ICMPHDR_SIZE, 0, (struct sockaddr *) &send_addr, SOCKADDR_SIZE);
+
+        ret = sendto(args->sock_fd, buf_out, tot_len, 0, (struct sockaddr *) &send_addr, SOCKADDR_SIZE);
         if (ret <= 0)
         {
             perror("sendto");
             continue;
         }
-        pkt_sent++;
-        ret = recv(sock_fd, buf_in, MTU_SIZE, 0);
+        args->pkt_sent++;
+
+recv_again:
+        ret = recv(args->sock_fd, buf_in, MTU_SIZE, 0);
         if (ret < 0)
         {
             if(errno != EAGAIN && errno != EWOULDBLOCK)
@@ -163,144 +163,160 @@ void ping_loop(int sock_fd, ipv4addr src_addr, ipv4addr dest_addr, uint8_t ttl_v
             continue;
         }
         clock_gettime(CLOCK_MONOTONIC, &time_end);
+    
+        if (args->dest_addr != ipv4_get_src_ip(buf_in))
+            goto recv_again;
 
-        ip_hdr = (struct iphdr *)buf_in;
-        icmp_hdr = (struct icmphdr *)(buf_in + (ip_hdr->ihl << 2));
+        icmp_in = buf_in + (ipv4_get_ihl(buf_in) << 2);
 
-        recv_addr.s_addr = ip_hdr->saddr;
-        inet_ntop(AF_INET, &recv_addr, ipstr, INET_ADDRSTRLEN);
-
-        if ((icmp_hdr->type == ICMP_ECHO || icmp_hdr->type == ICMP_ECHOREPLY) && icmp_hdr->code == 0)
+        if ((icmp_get_type(icmp_in) != ICMP_ECHOREPLY &&
+             icmp_get_type(icmp_in) != ICMP_ECHO) ||
+             icmp_get_code(icmp_in) != 0)
         {
-            delta = (time_end.tv_sec - time_start.tv_sec) * 1000.0;
-            delta += (time_end.tv_nsec - time_start.tv_nsec) / 1000000.0;
-            if (min_time > delta)
-                min_time = delta;
-            if (max_time < delta)
-                max_time = delta;
-
-            avg_time += delta;
-
-            if (!is_quiet)
-            {
-                printf("%ld bytes from %s: icmp_seq=%d time=%.2lfms\n", ret, ipstr, icmp_hdr->un.echo.sequence, delta);
-            }
-            pkt_recv++;
-        }
-        else
-        {
-            // If response is not of type ECHOREPLY
-            // Parse the code for error and print to stdout
-            handle_icmp_error(ipstr, icmp_hdr);
+            print_icmp_error(icmp_in);
             break;
         }
 
-        usleep(interval);
+        if (args->ident != icmp_get_identifier(icmp_in))
+            goto recv_again;
+        else if (args->seq_num != icmp_get_sequence(icmp_in))
+            goto recv_again;
+
+
+        delta = (time_end.tv_sec - time_start.tv_sec) * 1000.0;
+        delta += (time_end.tv_nsec - time_start.tv_nsec) / 1000000.0;
+        if (args->min_time > delta)
+            args->min_time = delta;
+        if (args->max_time < delta)
+            args->max_time = delta;
+
+        args->avg_time += delta;
+
+        if (!args->is_quiet)
+        {
+            printf("%ld bytes from %s: icmp_seq=%d time=%.2lfms\n", ret - IPV4_HDR_LEN, args->ip_str, icmp_get_sequence(icmp_in), delta);
+        }
+        args->pkt_recv++;
+        usleep(args->interval);
     }
 }
 
 int main(int argc, char *argv[])
 {
     int ret = 0;
-    int sock_fd = 0;
-    char *ip_str = NULL;
+    
     char *hostname = NULL;
-    uint8_t ttl_val = 64;
-    struct in_addr src_addr = {0};
-    struct in_addr dest_addr = {0};
 
-    exe_name = argv[0];
+    session_param ping_args = {0};
 
-    while ((ret = getopt(argc, argv, "c:i:t:qh")) != -1)
+    ping_args.interval = ONE_SEC;
+    ping_args.ttl_val  = DEFAULT_TTL;
+    ping_args.count    = DEFAULT_COUNT;
+    ping_args.min_time = ONE_SEC << 1;
+    ping_args.ident = (uint16_t) getpid();
+
+    while ((ret = getopt(argc, argv, "c:i:t:s:qvh")) != -1)
     {
+        uint64_t res = 0;
         switch (ret)
         {
             case 'c':
             {
-                if (!is_integer(optarg))
+                if (!is_positive_integer(optarg, "count", 1, INT64_MAX, &res))
                 {
-                    printf("Error: Count not provided\n");
-                    print_usage();
+                    print_usage(argv[0]);
                     return EXIT_FAILURE;
                 }
-                count_limit = strtoull(optarg, NULL, 10);
+                ping_args.count = res;
                 break;
             }
             case 'i':
             {
-                if (!is_integer(optarg))
+                if (!is_positive_integer(optarg, "interval", 1, INT32_MAX / ONE_MSEC, &res))
                 {
-                    printf("Error: Interval not provided\n");
-                    print_usage();
+                    print_usage(argv[0]);
                     return EXIT_FAILURE;
                 }
-                interval = ONE_MSEC * (uint32_t)strtoul(optarg, NULL, 10);
+                ping_args.interval = ((uint32_t) res)* ONE_MSEC; 
                 break;
             }
             case 't':
             {
-                if (!is_integer(optarg))
+                if (!is_positive_integer(optarg, "ttl", 1, UINT8_MAX, &res))
                 {
-                    printf("Error: Time to live not provided\n");
-                    print_usage();
+                    print_usage(argv[0]);
                     return EXIT_FAILURE;
                 }
-                ttl_val = (uint8_t)strtoul(optarg, NULL, 10);
-                if (ttl_val > 64)
-                    ttl_val = 64;
+                ping_args.ttl_val = (uint8_t) res;
+                break;
+            }
+            case 's':
+            {
+                if (!is_positive_integer(optarg, "size", 1, MAX_DATA_LEN, &res))
+                {
+                    print_usage(argv[0]);
+                    return EXIT_FAILURE;
+                }
+                ping_args.data_len = (uint16_t) res;
                 break;
             }
             case 'q':
             {
-                is_quiet = true;
+                ping_args.is_quiet = true;
+                break;
+            }
+            case 'v':
+            {
+                ping_args.is_verbose = true;
                 break;
             }
             case 'h':
             {
-                print_usage();
+                print_usage(argv[0]);
                 return EXIT_SUCCESS;
             }
             case '?':
             {
-                print_usage();
+                print_usage(argv[0]);
                 return EXIT_FAILURE;
             }
             default:
             {
-                print_usage();
+                print_usage(argv[0]);
                 return EXIT_FAILURE;
             }
         }
     }
 
-    if (argv[optind] == NULL)
+    hostname = argv[optind];
+    if (hostname == NULL)
     {
         printf("Missing desination argument\n");
-        print_usage();
+        print_usage(argv[0]);
         return EXIT_FAILURE;
     }
-    hostname = argv[optind];
 
     ret = register_sighandler();
     if (ret != 0)
         return EXIT_FAILURE;
 
-    ip_str = get_dest_addr(hostname, &dest_addr);
-    if (ip_str == NULL)
+    ret = get_dest_addr(hostname, &ping_args.dest_addr, ping_args.ip_str);
+    if (ret != 0)
         return EXIT_FAILURE;
 
-    ret = get_src_addr(&src_addr, &dest_addr);
+    ret = get_src_addr(&ping_args.src_addr, &ping_args.dest_addr);
     if(ret != 0)
         return EXIT_FAILURE;
 
-    sock_fd = create_socket(interval);
-    if (sock_fd < 0)
+    ping_args.sock_fd = create_raw_socket();
+    if (ping_args.sock_fd < 0)
         return EXIT_FAILURE;
+    
+    printf("PING %s (%s)\n", hostname, ping_args.ip_str);
 
-    printf("PING %s (%s)\n", hostname, ip_str);
-    ping_loop(sock_fd, &src_addr, &dest_addr, ttl_val);
-    print_stats(hostname);
+    ping_loop(&ping_args);
+    print_stats(&ping_args, hostname);
 
-    close(sock_fd);
+    close(ping_args.sock_fd);
     return EXIT_SUCCESS;
 }

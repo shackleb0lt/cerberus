@@ -24,49 +24,78 @@
 #include "common.h"
 
 /**
- * Function to verify if passed string is a number
+ * @brief Parses a string to an unsigned 64-bit integer,
+ * validating it against a specified range.
+ * @param str The input string to be parsed and validated.
+ * @param type A descriptive string for the field being parsed (e.g., "interval").
+ * @param min The minimum allowed value (inclusive).
+ * @param max The maximum allowed value (inclusive).
+ * @param val A pointer to a uint64_t where the parsed value will be stored if successful.
+ * @return Returns true if the string is a valid non-negative integer within the range;
+ * false otherwise, printing an error to stderr.
  */
-bool is_integer(char *arg)
+bool is_positive_integer(
+    const char *str, 
+    const char *type, 
+    uint64_t min, 
+    uint64_t max, 
+    uint64_t *val)
 {
-    uint32_t index = 0;
-    if (arg == NULL || *arg == '\0')
-        return false;
+    char *endptr = NULL;
+    unsigned long long res_ull = 0;
 
-    for (index = 0; arg[index] != '\0'; index++)
+    assert(type != NULL);
+    assert(val != NULL);
+
+    if (str == NULL || *str == '\0')
     {
-        if (arg[index] < '0' || arg[index] > '9')
-            return false;
+        fprintf(stderr, "Error: %s field cannot be empty", type);
+        goto print_range;
     }
+    else if (*str == '-')
+    {
+        fprintf(stderr, "Error: %s field cannot be negative", type);
+        goto print_range;
+    }
+
+    errno = 0;
+    res_ull = strtoull(str, &endptr, 10);
+
+    if (errno == ERANGE || res_ull > max || res_ull < min)
+    {
+        fprintf(stderr, "Error: %s value %s out of range", type, str);
+        goto print_range;
+    }
+    else if (endptr == str || *endptr != '\0')
+    {
+        // No digits were found, or non-digit characters were found after valid digits
+        fprintf(stderr, "Error: Invalid value '%s' for %s field (not a number)", str, type);
+        goto print_range;
+    }
+
+    *val = res_ull;
+
+#ifndef NDEBUG
+    printf("Type: %s = %llu\n", type, res_ull);
+#endif
     return true;
-}
 
-/**
- * Computes and returns the internet checksum,
- * len stores the number of 2 byte elements whose 
- * checksum has to be calculated
- */
-uint16_t inet_cksum(uint16_t *buffer, const uint32_t len)
-{
-    uint32_t sum = 0;
-    uint32_t curr = 0;
-    for (curr = 0; curr < len; curr++)
-        sum += buffer[curr];
-
-    sum = (sum & 0xffff) + (sum >> 16);
-    sum = (sum & 0xffff) + (sum >> 16);
-    sum = ~sum;
-    return (uint16_t)sum;
+print_range:
+    fprintf(stderr, ", valid range %lu <= %s <= %lu\n", min, type, max);
+    return false;
 }
 
 /**
  * Prints the type of error reported by ICMP reply packet
  */
-void handle_icmp_error(char *ipstr, struct icmphdr * hdr)
+void print_icmp_error(const uint8_t *bytes)
 {
-    printf("From %s icmp_seq=%d ", ipstr, hdr->un.echo.sequence);
-    if(hdr->type == ICMP_DEST_UNREACH)
+    uint8_t code = icmp_get_code(bytes);
+    uint8_t type = icmp_get_type(bytes);
+
+    if(type == ICMP_DEST_UNREACH)
     {
-        switch (hdr->code)
+        switch (code)
         {
             case ICMP_NET_UNREACH:
                 printf("Network Unreachable\n");
@@ -87,13 +116,13 @@ void handle_icmp_error(char *ipstr, struct icmphdr * hdr)
                 printf("Source Route Failed\n");
                 break;
             default:
-                printf("Received type: %d code: %d\n", hdr->type, hdr->code);
+                printf("Received type: %u code: %u\n", type, code);
                 break;
         }
     }
-    else if(hdr->type == ICMP_TIME_EXCEEDED)
+    else if(type == ICMP_TIME_EXCEEDED)
     {
-        switch (hdr->code)
+        switch (code)
         {
             case ICMP_EXC_TTL:
                 printf("Time To Live Exceeded In Transit\n");
@@ -102,54 +131,31 @@ void handle_icmp_error(char *ipstr, struct icmphdr * hdr)
                 printf("Fragment Reassembly Time Exceeded\n");
                 break;
             default:
-                printf("Received type: %d code: %d\n", hdr->type, hdr->code);
+                printf("Received type: %u code: %u\n", type, code);
                 break;
         }
     }
     else
     {
-        printf("Received type: %d code: %d\n", hdr->type, hdr->code);
+        printf("Received type: %u code: %u\n", type, code);
     }
-}
-
-/**
- * Function to fill ipv4 and icmp headers
- */
-void fill_packet_headers(char *buf_out, ipv4addr src_addr, ipv4addr dest_addr, uint8_t ttl_val)
-{
-    struct iphdr *ip_hdr = (struct iphdr *) buf_out;
-    struct icmphdr *icmp_hdr = (struct icmphdr *)(buf_out + IPHDR_SIZE);
-
-    ip_hdr->ihl = 5;
-    ip_hdr->version = 4;
-    ip_hdr->tot_len = htons(IPHDR_SIZE + ICMPHDR_SIZE);
-    ip_hdr->id = htons((uint16_t)getpid());
-
-    ip_hdr->ttl = ttl_val;
-    ip_hdr->protocol = IPPROTO_ICMP;
-
-    ip_hdr->saddr = src_addr->s_addr;
-    ip_hdr->daddr = dest_addr->s_addr;
-    
-    ip_hdr->check = inet_cksum((unsigned short *)ip_hdr, IPHDR_SIZE >> 1);
-
-    icmp_hdr->type = ICMP_ECHO;
-    icmp_hdr->un.echo.id = htons((uint16_t)getpid());
 }
 
 /**
  * Creates a RAW ipv4 socket allowing handcrafted 
  * ipv4 header and icmp header, requires root priveleges
  */
-int create_socket(uint32_t interval)
+int create_raw_socket()
 {
     int ret = 0;
     int sock_fd = -1;
-    struct timeval tv_out = {0};
-    tv_out.tv_sec = interval / ONE_SEC;
-    tv_out.tv_usec = interval % ONE_SEC;
+    struct timeval tv_out =
+    {
+        .tv_sec = 5,
+        .tv_usec = 0
+    };
 
-    // Open raw socket to send packets into 
+    // Open raw socket to send packets into
     sock_fd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
     if (sock_fd < 0)
     {
@@ -159,8 +165,8 @@ int create_socket(uint32_t interval)
 
     // Enable IP_HDRINCL to tell the kernel we are including the IP header
     int opt = 1;
-    ret = setsockopt(sock_fd, IPPROTO_IP, IP_HDRINCL, &opt, sizeof(int)); 
-    if ( ret < 0)
+    ret = setsockopt(sock_fd, IPPROTO_IP, IP_HDRINCL, &opt, sizeof(int));
+    if (ret < 0)
     {
         perror("Error setting IP_HDRINCL");
         close(sock_fd);
@@ -192,19 +198,21 @@ int create_socket(uint32_t interval)
  * and stores it in addr pointer
  * Also returns a static string which hold presentation form
  */
-char *get_dest_addr(const char *input, ipv4addr dest_addr)
+int get_dest_addr(const char *input, uint32_t *dest_addr, char *ipstr)
 {
     int ret = 0;
     struct addrinfo hint;
-    struct addrinfo *res;
-    static char ipstr[INET_ADDRSTRLEN] = {0};
+    struct addrinfo *res = NULL;
+
+    assert(ipstr != NULL);
+    assert(dest_addr != NULL);
 
     // Check if string is of the form "X.X.X.X"
     ret = inet_pton(AF_INET, input, dest_addr);
     if (ret == 1)
     {
-        strncpy(ipstr, input, INET_ADDRSTRLEN - 1);
-        return ipstr;
+        strncpy(ipstr, input, INET6_ADDRSTRLEN - 1);
+        return 0;
     }
 
     // If a hostname was provided retreive it's ip address 
@@ -218,21 +226,23 @@ char *get_dest_addr(const char *input, ipv4addr dest_addr)
     if (ret != 0 || res == NULL)
     {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(ret));
-        return NULL;
+        return -1;
     }
-    dest_addr->s_addr = ((struct sockaddr_in *)res->ai_addr)->sin_addr.s_addr;
+
+    (*dest_addr) = ((struct sockaddr_in *)res->ai_addr)->sin_addr.s_addr;
     freeaddrinfo(res);
+
     // Convert the ip adddress to presentation form to be printed
-    inet_ntop(AF_INET, dest_addr, ipstr, INET_ADDRSTRLEN);
-    return ipstr;
+    inet_ntop(AF_INET, dest_addr, ipstr, INET6_ADDRSTRLEN);
+    return 0;
 }
 
 /**
- * Work around to retreives the source IP address by
+ * Work around to retreive the source IP address by
  * attempting to connect to a destination port
- * since the socet used is UDP no packets are actually sent
+ * since a UDP socket is used no packets are actually sent
  */
-int get_src_addr(ipv4addr src_addr, ipv4addr dest_addr)
+int get_src_addr(uint32_t *src_addr, uint32_t *dest_addr)
 {
     int sock_fd = -1;
     struct sockaddr_in addr = {0};
@@ -250,7 +260,7 @@ int get_src_addr(ipv4addr src_addr, ipv4addr dest_addr)
     // Set up the destination address
     addr.sin_family = AF_INET;
     addr.sin_port = htons(80); // Port doesn't matter
-    addr.sin_addr.s_addr = dest_addr->s_addr;
+    addr.sin_addr.s_addr = *dest_addr;
 
     // Connect to the target (no data is sent)
     if (connect(sock_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0)
@@ -268,7 +278,29 @@ int get_src_addr(ipv4addr src_addr, ipv4addr dest_addr)
         return -1;
     }
     
-    src_addr->s_addr = local_addr.sin_addr.s_addr;
+    (*src_addr) = local_addr.sin_addr.s_addr;
     close(sock_fd);
     return 0;
+}
+
+/**
+ * Function to fill ipv4 and icmp headers
+ */
+void fill_packet_headers(uint8_t *buf, session_param * args)
+{
+    uint8_t *icmp_hdr = buf + IPV4_HDR_LEN;
+
+    ipv4_set_ihl(buf, (IPV4_HDR_LEN/4));
+    ipv4_set_ttl(buf, args->ttl_val);
+    ipv4_set_version(buf, IP_VERSION);
+    ipv4_set_total_length(buf, args->data_len);
+    ipv4_set_protocol(buf, IPPROTO_ICMP);
+
+    ipv4_set_src_ip(buf, args->src_addr);
+    ipv4_set_dest_ip(buf, args->dest_addr);
+
+    ipv4_set_header_checksum(buf);
+
+    icmp_set_type(icmp_hdr, ICMP_ECHO);
+    icmp_set_identifier(icmp_hdr, args->ident);
 }

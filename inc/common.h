@@ -24,11 +24,10 @@
 #ifndef PING_H
 #define PING_H
 
-#include <stdio.h>
+#include "packet_header.h"
+
 #include <stdlib.h>
-#include <string.h>
 #include <signal.h>
-#include <stdint.h>
 #include <stdbool.h>
 #include <unistd.h>
 
@@ -42,24 +41,59 @@
 #include <netinet/in.h>
 #include <netinet/ip_icmp.h>
 
-#define IPHDR_SIZE sizeof(struct iphdr)
-#define ICMPHDR_SIZE sizeof(struct icmphdr)
+#define ONE_MSEC 1000
+#define ONE_SEC  1000000
+
+#define DEFAULT_COUNT 1000
+
+#define DEFAULT_TTL 64
+#define IP_VERSION  4
+#define MTU_SIZE    1500
+
+#define MIN_HDR_LEN  (IPV4_HDR_LEN + ICMP_HDR_LEN)
+#define MAX_DATA_LEN (UINT16_MAX - MIN_HDR_LEN)
 
 #define SOCKADDR_SIZE sizeof(struct sockaddr_in)
-#define DEFAULT_COUNT 1000
-#define ONE_SEC 1000000
-#define ONE_MSEC 1000
-#define MTU_SIZE 1500
+
+typedef struct
+{
+    int sock_fd;
+    uint32_t src_addr;
+    uint32_t dest_addr;
+
+    uint32_t interval;
+
+    uint64_t pkt_sent;
+    uint64_t pkt_recv;
+    uint64_t count;
+
+    double avg_time;
+    double min_time;
+    double max_time;
+
+    bool is_quiet; 
+    bool is_verbose;
+
+    uint16_t ident;
+    uint16_t seq_num;
+
+    uint8_t ttl_val;
+    uint16_t data_len;
+
+    char ip_str[INET6_ADDRSTRLEN];
+} session_param;
 
 typedef struct in_addr *ipv4addr;
 
-int   create_socket(uint32_t interval);
-int   get_src_addr(ipv4addr src_addr, ipv4addr dest_addr);
-char *get_dest_addr(const char *input, ipv4addr dest_addr);
+int create_raw_socket();
+void print_icmp_error(const uint8_t *bytes);
 
-bool is_integer(char *arg);
-uint16_t inet_cksum(uint16_t *buffer, const uint32_t len);
-void handle_icmp_error(char *ipstr, struct icmphdr *hdr);
-void fill_packet_headers(char *buf_out, ipv4addr src_addr, ipv4addr dest_addr, uint8_t ttl_val);
+int get_dest_addr(const char *input, uint32_t *dest_addr, char *ip_str);
+int get_src_addr(uint32_t *src_addr, uint32_t *dest_addr);
+void fill_packet_headers(uint8_t *buf, session_param *args);
+
+bool is_positive_integer(const char *str, const char *type, 
+    uint64_t min, uint64_t max, uint64_t *val);
+
 
 #endif
