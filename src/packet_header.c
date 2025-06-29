@@ -442,6 +442,7 @@ void ipv4_set_dest_ip(uint8_t *header_bytes, uint32_t dest_ip)
  */
 void print_ip_address(uint32_t ip, bool with_newline)
 {
+    ip = NTOHL(ip);
     printf("%u.%u.%u.%u",
            (ip >> 24) & 0xFF,
            (ip >> 16) & 0xFF,

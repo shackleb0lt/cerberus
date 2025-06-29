@@ -120,54 +120,51 @@ void ping_loop(session_param *args)
     ssize_t ret = 0;
     double delta = 0;
 
-    uint8_t buf_in[MTU_SIZE] = {0};
-    uint8_t buf_out[MTU_SIZE] = {0};
-
-    uint8_t *icmp_in = buf_in + IPV4_HDR_LEN;
-    uint8_t *icmp_out = buf_out + IPV4_HDR_LEN;
-
-    uint32_t tot_len = MIN_HDR_LEN + args->data_len;
+    uint8_t icmp_in[UINT16_MAX] = {0};
+    uint8_t icmp_out[UINT16_MAX] = {0};
 
     struct timespec time_end = {0};
     struct timespec time_start = {0};
-    struct sockaddr_in send_addr = {0};
 
-    send_addr.sin_addr.s_addr = args->dest_addr;
-
-    fill_packet_headers(buf_out, args);
+    if (args->data_len > 0)
+    {
+        generate_icmp_data(icmp_out + ICMP_HDR_LEN, args->data_len);
+        args->data_len = ICMP_HDR_LEN + args->data_len;
+    }
+    else
+        args->data_len = ICMP_HDR_LEN;
+    
+    icmp_set_type(icmp_out, ICMP_ECHO);
+    icmp_set_identifier(icmp_out, args->ident);
 
     while (is_run && args->pkt_sent < args->count)
     {
-//         // Update ICMP sequence number and checksum
+        // Update ICMP sequence number and checksum
         icmp_set_sequence_number(icmp_out, ++args->seq_num);
-        icmp_set_checksum(icmp_out, ICMP_HDR_LEN + args->data_len);
+        icmp_set_checksum(icmp_out, args->data_len);
 
         clock_gettime(CLOCK_MONOTONIC, &time_start);
 
-        ret = sendto(args->sock_fd, buf_out, tot_len, 0, (struct sockaddr *) &send_addr, SOCKADDR_SIZE);
+        ret = send_pkt(args, icmp_out, args->data_len);
         if (ret <= 0)
-        {
-            perror("sendto");
-            continue;
-        }
+            break;
+
         args->pkt_sent++;
 
-recv_again:
-        ret = recv(args->sock_fd, buf_in, MTU_SIZE, 0);
+    recv_again:
+        ret = recv_pkt(args, icmp_in, UINT16_MAX);
         if (ret < 0)
         {
-            if(errno != EAGAIN && errno != EWOULDBLOCK)
+            if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
+            {
                 perror("recv");
+                usleep(args->interval);
+            }
 
             // send next packet if timeout is reached
             continue;
         }
         clock_gettime(CLOCK_MONOTONIC, &time_end);
-    
-        if (args->dest_addr != ipv4_get_src_ip(buf_in))
-            goto recv_again;
-
-        icmp_in = buf_in + (ipv4_get_ihl(buf_in) << 2);
 
         if ((icmp_get_type(icmp_in) != ICMP_ECHOREPLY &&
              icmp_get_type(icmp_in) != ICMP_ECHO) ||
@@ -182,7 +179,6 @@ recv_again:
         else if (args->seq_num != icmp_get_sequence(icmp_in))
             goto recv_again;
 
-
         delta = (time_end.tv_sec - time_start.tv_sec) * 1000.0;
         delta += (time_end.tv_nsec - time_start.tv_nsec) / 1000000.0;
         if (args->min_time > delta)
@@ -194,7 +190,8 @@ recv_again:
 
         if (!args->is_quiet)
         {
-            printf("%ld bytes from %s: icmp_seq=%d time=%.2lfms\n", ret - IPV4_HDR_LEN, args->ip_str, icmp_get_sequence(icmp_in), delta);
+            printf("%ld bytes from %s: icmp_seq=%d time=%.2lfms\n", 
+                ret, args->ip_str, args->seq_num, delta);
         }
         args->pkt_recv++;
         usleep(args->interval);
@@ -306,6 +303,10 @@ int main(int argc, char *argv[])
 
     ret = get_src_addr(&ping_args.src_addr, &ping_args.dest_addr);
     if(ret != 0)
+        return EXIT_FAILURE;
+    
+    ping_args.mtu_size = get_mtu_size(ping_args.src_addr);
+    if (ping_args.mtu_size < 0)
         return EXIT_FAILURE;
 
     ping_args.sock_fd = create_raw_socket();
