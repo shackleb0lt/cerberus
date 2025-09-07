@@ -23,10 +23,6 @@
 
 #include "common.h"
 
-#include <ifaddrs.h>
-#include <net/if.h>
-#include <sys/ioctl.h>
-
 /**
  * @brief Parses a string to an unsigned 64-bit integer,
  * validating it against a specified range.
@@ -156,7 +152,7 @@ int create_raw_socket()
     int sock_fd = -1;
     struct timeval tv_out =
     {
-        .tv_sec = 5,
+        .tv_sec = 2,
         .tv_usec = 0
     };
 
@@ -287,85 +283,24 @@ int get_src_addr(uint32_t *src_addr, uint32_t *dest_addr)
     return 0;
 }
 
-int get_mtu_size(uint32_t src_addr)
-{
-    struct ifreq ifr = {0};
-    struct ifaddrs *if_list = NULL;
-    struct ifaddrs *if_itr = NULL;
-    struct sockaddr_in *ip_addr = NULL;
-
-    bool found = false;
-    int sock_fd = -1;
-    
-    if (getifaddrs(&if_list) == -1)
-    {
-        perror("getifaddrs");
-        return -1;
-    }
-
-    for (if_itr = if_list; if_itr != NULL; if_itr = if_itr->ifa_next)
-    {
-        if (if_itr->ifa_addr == NULL)
-            continue;
-        else if(if_itr->ifa_addr->sa_family != AF_INET)
-            continue;
-
-        ip_addr = (struct sockaddr_in *) if_itr->ifa_addr;
-        if (ip_addr->sin_addr.s_addr == src_addr)
-        {
-            found = true;
-            break;
-        }
-    }
-
-    if (found == false)
-    {
-        fprintf(stderr, "Unable to find MTU size\n");
-        freeifaddrs(if_list);
-        return -1;
-    }
-
-    sock_fd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock_fd < 0)
-    {
-        perror("socket for ioctl");
-        freeifaddrs(if_list);
-        return -1;
-    }
-
-    strncpy(ifr.ifr_name, if_itr->ifa_name, IFNAMSIZ - 1);
-    ifr.ifr_name[IFNAMSIZ - 1] = '\0';
-
-    if (ioctl(sock_fd, SIOCGIFMTU, &ifr) < 0)
-    {
-        fprintf(stderr, "Error getting MTU for %s: %s\n", if_itr->ifa_name, strerror(errno));
-        freeifaddrs(if_list);
-        close(sock_fd);
-    }
-
-    freeifaddrs(if_list);
-    close(sock_fd);
-    return ifr.ifr_mtu;
-
-}
-
 void generate_icmp_data(uint8_t buf[], size_t len)
 {
     size_t i = 0;
-    for (i = 0; i < len; i++)
+    len += ICMP_HDR_LEN;
+    for (i = ICMP_HDR_LEN; i < len; i++)
     {
         buf[i] = 'a' + (char)(i % 26);
     }
 }
 
-ssize_t recv_pkt(session_param* args, uint8_t icmp_buf[], size_t buf_len)
+ssize_t recv_pkt(conn_params *args, uint8_t icmp_buf[], size_t buf_len)
 {
     ssize_t offset = 0;
     ssize_t bytes_read = 0;
-    uint8_t buf[UINT16_MAX] = {0};
+    uint8_t buf[DEFAULT_MTU_SIZE] = {0};
 
 recv_again:
-    bytes_read = recv(args->sock_fd, buf, UINT16_MAX, 0);
+    bytes_read = recv(args->sock_fd, buf, DEFAULT_MTU_SIZE, 0);
     if (bytes_read < 0)
         return -1;
 
@@ -388,30 +323,27 @@ recv_again:
     return bytes_read;
 }
 
-ssize_t send_pkt(session_param* args, uint8_t icmp_buf[], size_t buf_len)
+ssize_t send_pkt(conn_params *args, uint8_t icmp_buf[], size_t buf_len)
 {
+    uint8_t buf[DEFAULT_MTU_SIZE] = {0};
     size_t tot_len = buf_len + IPV4_HDR_LEN;
-    uint8_t buf[UINT16_MAX] = {0};
+
     struct sockaddr_in send_addr = {0};
     send_addr.sin_addr.s_addr = args->dest_addr;
 
-    ipv4_set_ihl(buf, (IPV4_HDR_LEN/4));
-    ipv4_set_ttl(buf, args->ttl_val);
     ipv4_set_version(buf, IP_VERSION);
+    ipv4_set_ihl(buf, (IPV4_HDR_LEN/4));
+
+    ipv4_set_total_length(buf, tot_len);
+
+    ipv4_set_dont_frag_bit(buf, 1);
+
+    ipv4_set_ttl(buf, args->ttl_val);
     ipv4_set_protocol(buf, IPPROTO_ICMP);
 
     ipv4_set_src_ip(buf, args->src_addr);
     ipv4_set_dest_ip(buf, args->dest_addr);
 
-    if (tot_len <= args->mtu_size)
-    {
-        ipv4_set_total_length(buf, tot_len);
-        ipv4_set_header_checksum(buf);
-        memcpy(buf + IPV4_HDR_LEN, icmp_buf, buf_len);
-        return sendto(args->sock_fd, buf, tot_len, 0, (struct sockaddr*) &send_addr, SOCKADDR_SIZE);
-    }
-
-    ipv4_set_identification(buf, icmp_get_sequence(icmp_buf));
-    // ipv4_set_header_checksum(buf);
-    return 0;
+    memcpy(buf + IPV4_HDR_LEN, icmp_buf, buf_len);
+    return sendto(args->sock_fd, buf, tot_len, 0, (struct sockaddr*) &send_addr, SOCKADDR_SIZE);
 }

@@ -46,9 +46,6 @@
 
 #define DEFAULT_COUNT 1000
 
-#define DEFAULT_TTL 64
-#define IP_VERSION  4
-
 #define MIN_HDR_LEN  (IPV4_HDR_LEN + ICMP_HDR_LEN)
 #define MAX_DATA_LEN (UINT16_MAX - MIN_HDR_LEN)
 
@@ -57,37 +54,23 @@
 typedef struct
 {
     int sock_fd;
-    int mtu_size;
 
     uint32_t src_addr;
     uint32_t dest_addr;
 
-    uint32_t interval;
-
     uint64_t pkt_sent;
     uint64_t pkt_recv;
-    uint64_t count;
-
-    double avg_time;
-    double min_time;
-    double max_time;
-
-    bool is_quiet; 
-    bool is_verbose;
-
-    uint16_t ident;
-    uint16_t seq_num;
 
     uint8_t ttl_val;
-    uint16_t data_len;
+
+    uint16_t icmp_ident;
 
     char ip_str[INET6_ADDRSTRLEN];
-} session_param;
+} conn_params;
 
 int create_raw_socket();
-int get_mtu_size(uint32_t src_addr);
-ssize_t send_pkt(session_param* args, uint8_t icmp_buf[], size_t buf_len);
-ssize_t recv_pkt(session_param* args, uint8_t icmp_buf[], size_t buf_len);
+ssize_t send_pkt(conn_params* args, uint8_t icmp_buf[], size_t buf_len);
+ssize_t recv_pkt(conn_params* args, uint8_t icmp_buf[], size_t buf_len);
 
 int get_dest_addr(const char *input, uint32_t *dest_addr, char *ip_str);
 int get_src_addr(uint32_t *src_addr, uint32_t *dest_addr);
@@ -97,6 +80,5 @@ void print_icmp_error(const uint8_t *bytes);
 
 bool is_positive_integer(const char *str, const char *type, 
     uint64_t min, uint64_t max, uint64_t *val);
-
 
 #endif
