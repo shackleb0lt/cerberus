@@ -299,7 +299,7 @@ ssize_t recv_pkt(conn_params *args, uint8_t icmp_buf[], size_t buf_len)
     ssize_t bytes_read = 0;
     uint8_t buf[DEFAULT_MTU_SIZE] = {0};
 
-recv_again:
+// recv_again:
     bytes_read = recv(args->sock_fd, buf, DEFAULT_MTU_SIZE, 0);
     if (bytes_read < 0)
         return -1;
@@ -317,9 +317,9 @@ recv_again:
     }
 
     if ((size_t) bytes_read > buf_len)
-        bytes_read = buf_len;
+        bytes_read = (ssize_t) buf_len;
     
-    memcpy(icmp_buf, buf + offset, bytes_read);
+    memcpy(icmp_buf, buf + offset, (size_t) bytes_read);
     return bytes_read;
 }
 
@@ -334,7 +334,7 @@ ssize_t send_pkt(conn_params *args, uint8_t icmp_buf[], size_t buf_len)
     ipv4_set_version(buf, IP_VERSION);
     ipv4_set_ihl(buf, (IPV4_HDR_LEN/4));
 
-    ipv4_set_total_length(buf, tot_len);
+    ipv4_set_total_length(buf, (uint16_t)tot_len);
 
     ipv4_set_dont_frag_bit(buf, 1);
 
