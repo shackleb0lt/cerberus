@@ -23,6 +23,27 @@
 
 #include "common.h"
 
+typedef struct
+{
+    conn_params conn; 
+
+    uint32_t interval;
+    uint64_t count;
+
+    double avg_time;
+    double min_time;
+    double max_time;
+
+    bool is_quiet; 
+    bool is_verbose;
+
+    uint16_t seq_num;
+    uint16_t data_len;
+
+    char ip_str[INET6_ADDRSTRLEN];
+} session_param;
+
+
 bool is_run = true;
 
 /**
@@ -48,15 +69,16 @@ void print_usage(const char *exe_name)
  */
 void print_stats(session_param *args, char *hostname)
 {
-    double pkt_loss = 0;
-    pkt_loss = (args->pkt_sent - args->pkt_recv) * 100.0 / args->pkt_sent;
-    
+    double pkt_loss = (double)(args->conn.pkt_sent - args->conn.pkt_recv);
+    pkt_loss = pkt_loss * 100.0;
+    pkt_loss = pkt_loss / (double)args->conn.pkt_sent;
+
     printf("\n--- %s ping statistics ---\n", hostname);
     printf("%lu packets transmitted, %lu received, %.2lf%% packet loss\n",
-        args->pkt_sent, args->pkt_recv, pkt_loss);
+        args->conn.pkt_sent, args->conn.pkt_recv, pkt_loss);
 
     printf("rtt min/avg/max = %.3lf/%.3lf/%.3lf ms\n",
-        args->min_time, args->avg_time / args->pkt_recv, args->max_time);
+        args->min_time, args->avg_time / (double)args->conn.pkt_recv, args->max_time);
 }
 
 /**
@@ -120,39 +142,36 @@ void ping_loop(session_param *args)
     ssize_t ret = 0;
     double delta = 0;
 
-    uint8_t icmp_in[UINT16_MAX] = {0};
-    uint8_t icmp_out[UINT16_MAX] = {0};
+    uint8_t icmp_in[DEFAULT_MTU_SIZE - IPV4_HDR_LEN] = {0};
+    uint8_t icmp_out[DEFAULT_MTU_SIZE - IPV4_HDR_LEN] = {0};
 
     struct timespec time_end = {0};
     struct timespec time_start = {0};
 
     if (args->data_len > 0)
     {
-        generate_icmp_data(icmp_out + ICMP_HDR_LEN, args->data_len);
-        args->data_len = ICMP_HDR_LEN + args->data_len;
+        generate_icmp_data(icmp_out, args->data_len);
     }
-    else
-        args->data_len = ICMP_HDR_LEN;
     
     icmp_set_type(icmp_out, ICMP_ECHO);
-    icmp_set_identifier(icmp_out, args->ident);
+    icmp_set_identifier(icmp_out, args->conn.icmp_ident);
 
-    while (is_run && args->pkt_sent < args->count)
+    while (is_run && args->conn.pkt_sent < args->count)
     {
         // Update ICMP sequence number and checksum
         icmp_set_sequence_number(icmp_out, ++args->seq_num);
-        icmp_set_checksum(icmp_out, args->data_len);
+        icmp_set_checksum(icmp_out, ICMP_HDR_LEN + args->data_len);
 
         clock_gettime(CLOCK_MONOTONIC, &time_start);
 
-        ret = send_pkt(args, icmp_out, args->data_len);
+        ret = send_pkt(&args->conn, icmp_out, ICMP_HDR_LEN + args->data_len);
         if (ret <= 0)
             break;
 
-        args->pkt_sent++;
+        args->conn.pkt_sent++;
 
     recv_again:
-        ret = recv_pkt(args, icmp_in, UINT16_MAX);
+        ret = recv_pkt(&args->conn, icmp_in, UINT16_MAX);
         if (ret < 0)
         {
             if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
@@ -174,13 +193,13 @@ void ping_loop(session_param *args)
             break;
         }
 
-        if (args->ident != icmp_get_identifier(icmp_in))
+        if (args->conn.icmp_ident != icmp_get_identifier(icmp_in))
             goto recv_again;
         else if (args->seq_num != icmp_get_sequence(icmp_in))
             goto recv_again;
 
-        delta = (time_end.tv_sec - time_start.tv_sec) * 1000.0;
-        delta += (time_end.tv_nsec - time_start.tv_nsec) / 1000000.0;
+        delta = ((double)(time_end.tv_sec - time_start.tv_sec)) * 1000.0;
+        delta += ((double)(time_end.tv_nsec - time_start.tv_nsec)) / 1000000.0;
         if (args->min_time > delta)
             args->min_time = delta;
         if (args->max_time < delta)
@@ -193,7 +212,8 @@ void ping_loop(session_param *args)
             printf("%ld bytes from %s: icmp_seq=%d time=%.2lfms\n", 
                 ret, args->ip_str, args->seq_num, delta);
         }
-        args->pkt_recv++;
+
+        args->conn.pkt_recv++;
         usleep(args->interval);
     }
 }
@@ -207,10 +227,10 @@ int main(int argc, char *argv[])
     session_param ping_args = {0};
 
     ping_args.interval = ONE_SEC;
-    ping_args.ttl_val  = DEFAULT_TTL;
+    ping_args.conn.ttl_val  = DEFAULT_TTL;
     ping_args.count    = DEFAULT_COUNT;
     ping_args.min_time = ONE_SEC << 1;
-    ping_args.ident = (uint16_t) getpid();
+    ping_args.conn.icmp_ident = (uint16_t) getpid();
 
     while ((ret = getopt(argc, argv, "c:i:t:s:qvh")) != -1)
     {
@@ -239,12 +259,12 @@ int main(int argc, char *argv[])
             }
             case 't':
             {
-                if (!is_positive_integer(optarg, "ttl", 1, UINT8_MAX, &res))
+                if (!is_positive_integer(optarg, "time to live", 1, UINT8_MAX, &res))
                 {
                     print_usage(argv[0]);
                     return EXIT_FAILURE;
                 }
-                ping_args.ttl_val = (uint8_t) res;
+                ping_args.conn.ttl_val = (uint8_t) res;
                 break;
             }
             case 's':
@@ -297,20 +317,16 @@ int main(int argc, char *argv[])
     if (ret != 0)
         return EXIT_FAILURE;
 
-    ret = get_dest_addr(hostname, &ping_args.dest_addr, ping_args.ip_str);
+    ret = get_dest_addr(hostname, &ping_args.conn.dest_addr, ping_args.ip_str);
     if (ret != 0)
         return EXIT_FAILURE;
 
-    ret = get_src_addr(&ping_args.src_addr, &ping_args.dest_addr);
+    ret = get_src_addr(&ping_args.conn.src_addr, &ping_args.conn.dest_addr);
     if(ret != 0)
         return EXIT_FAILURE;
-    
-    ping_args.mtu_size = get_mtu_size(ping_args.src_addr);
-    if (ping_args.mtu_size < 0)
-        return EXIT_FAILURE;
 
-    ping_args.sock_fd = create_raw_socket();
-    if (ping_args.sock_fd < 0)
+    ping_args.conn.sock_fd = create_raw_socket();
+    if (ping_args.conn.sock_fd < 0)
         return EXIT_FAILURE;
     
     printf("PING %s (%s)\n", hostname, ping_args.ip_str);
@@ -318,6 +334,6 @@ int main(int argc, char *argv[])
     ping_loop(&ping_args);
     print_stats(&ping_args, hostname);
 
-    close(ping_args.sock_fd);
+    close(ping_args.conn.sock_fd);
     return EXIT_SUCCESS;
 }
