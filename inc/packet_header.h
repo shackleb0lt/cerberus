@@ -70,6 +70,11 @@
 #define IPV4_HDR_LEN 20
 #define ICMP_HDR_LEN 8
 
+#define DEFAULT_MTU_SIZE 1500
+
+#define DEFAULT_TTL 64
+#define IP_VERSION  4
+
 /**
  * @brief Calculate and returns the checksum (one's complement sum).
  * NOTE: The checksum field in the header should be set to 0 before calling this function.
@@ -78,6 +83,26 @@
  * @return The calculated 16-bit checksum in host byte order.
  */
 uint16_t inet_cksum(const uint8_t *bytes, size_t len);
+
+/*
+    IPv4 Header Format
+
+    0                   1                   2                   3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |Version|  IHL  |Type of Service|          Total Length         |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |         Identification        |Flags|      Fragment Offset    |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |  Time to Live |    Protocol   |         Header Checksum       |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                       Source Address                          |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                    Destination Address                        |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                    Options                    |    Padding    |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+*/
 
 /**
  * @brief Gets the IPv4 Version from the raw header.
@@ -94,13 +119,6 @@ uint8_t ipv4_get_version(const uint8_t *header_bytes);
 uint8_t ipv4_get_ihl(const uint8_t *header_bytes);
 
 /**
- * @brief Gets the IPv4 Type of Service (ToS) from the raw header.
- * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
- * @return The 8-bit ToS value.
- */
-uint8_t ipv4_get_tos(const uint8_t *header_bytes);
-
-/**
  * @brief Gets the IPv4 Total Length from the raw header.
  * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
  * @return The 16-bit Total Length in host byte order.
@@ -108,25 +126,11 @@ uint8_t ipv4_get_tos(const uint8_t *header_bytes);
 uint16_t ipv4_get_total_length(const uint8_t *header_bytes);
 
 /**
- * @brief Gets the IPv4 Identification from the raw header.
- * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
- * @return The 16-bit Identification in host byte order.
- */
-uint16_t ipv4_get_identification(const uint8_t *header_bytes);
-
-/**
  * @brief Gets the IPv4 Flags from the raw header.
  * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
  * @return The 3-bit Flags value.
  */
 uint8_t ipv4_get_flags(const uint8_t *header_bytes);
-
-/**
- * @brief Gets the IPv4 Fragment Offset from the raw header.
- * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
- * @return The 13-bit Fragment Offset in host byte order.
- */
-uint16_t ipv4_get_fragment_offset(const uint8_t *header_bytes);
 
 /**
  * @brief Gets the IPv4 Time to Live (TTL) from the raw header.
@@ -141,27 +145,6 @@ uint8_t ipv4_get_ttl(const uint8_t *header_bytes);
  * @return The 8-bit Protocol value.
  */
 uint8_t ipv4_get_protocol(const uint8_t *header_bytes);
-
-/**
- * @brief Gets the IPv4 Header Checksum from the raw header.
- * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
- * @return The 16-bit Header Checksum in host byte order.
- */
-uint16_t ipv4_get_header_checksum(const uint8_t *header_bytes);
-
-/**
- * @brief Gets the IPv4 Source IP Address from the raw header.
- * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
- * @return The 32-bit Source IP Address in host byte order.
- */
-uint32_t ipv4_get_src_ip_host(const uint8_t *header_bytes);
-
-/**
- * @brief Gets the IPv4 Destination IP Address from the raw header.
- * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
- * @return The 32-bit Destination IP Address in host byte order.
- */
-uint32_t ipv4_get_dest_ip_host(const uint8_t *header_bytes);
 
 /**
  * @brief Gets the IPv4 Source IP Address from the raw header 
@@ -192,13 +175,6 @@ void ipv4_set_version(uint8_t *header_bytes, uint8_t version);
 void ipv4_set_ihl(uint8_t *header_bytes, uint8_t ihl);
 
 /**
- * @brief Sets the IPv4 Type of Service (ToS) in the raw header.
- * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
- * @param tos The 8-bit ToS value.
- */
-void ipv4_set_tos(uint8_t *header_bytes, uint8_t tos);
-
-/**
  * @brief Sets the IPv4 Total Length in the raw header.
  * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
  * @param total_length The 16-bit Total Length in host byte order.
@@ -206,11 +182,12 @@ void ipv4_set_tos(uint8_t *header_bytes, uint8_t tos);
 void ipv4_set_total_length(uint8_t *header_bytes, uint16_t total_length);
 
 /**
- * @brief Sets the IPv4 Identification in the raw header.
+ * @brief Sets the Don't Fragment (DF) bit in the IPv4 header.
+ *
  * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
- * @param identification The 16-bit Identification in host byte order.
+ * @param flags The value to set the bit to (0 or 1).
  */
-void ipv4_set_identification(uint8_t *header_bytes, uint16_t identification);
+void ipv4_set_dont_frag_bit(uint8_t *header_bytes, uint8_t flags);
 
 /**
  * @brief Sets the IPv4 Flags in the raw header.
@@ -218,13 +195,6 @@ void ipv4_set_identification(uint8_t *header_bytes, uint16_t identification);
  * @param flags The 3-bit Flags value.
  */
 void ipv4_set_flags(uint8_t *header_bytes, uint8_t flags);
-
-/**
- * @brief Sets the IPv4 Fragment Offset in the raw header.
- * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
- * @param fragment_offset The 13-bit Fragment Offset in host byte order.
- */
-void ipv4_set_fragment_offset(uint8_t *header_bytes, uint16_t fragment_offset);
 
 /**
  * @brief Sets the IPv4 Time to Live (TTL) in the raw header.
@@ -239,26 +209,6 @@ void ipv4_set_ttl(uint8_t *header_bytes, uint8_t ttl);
  * @param protocol The 8-bit Protocol value.
  */
 void ipv4_set_protocol(uint8_t *header_bytes, uint8_t protocol);
-
-/**
- * @brief Computes and sets the IPv4 Header Checksum in the raw header.
- * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
- */
-void ipv4_set_header_checksum(uint8_t *header_bytes);
-
-/**
- * @brief Sets the IPv4 Source IP Address in the raw header.
- * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
- * @param src_ip The 32-bit Source IP Address in host byte order.
- */
-void ipv4_set_src_ip_host(uint8_t *header_bytes, uint32_t src_ip);
-
-/**
- * @brief Sets the IPv4 Destination IP Address in the raw header.
- * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
- * @param dest_ip The 32-bit Destination IP Address in host byte order.
- */
-void ipv4_set_dest_ip_host(uint8_t *header_bytes, uint32_t dest_ip);
 
 /**
  * @brief Sets the IPv4 Source IP Address in the raw header.
@@ -278,6 +228,19 @@ void print_ip_address(uint32_t ip, bool with_newline);
 void print_ip_header(const uint8_t *ipv4_header);
 void print_icmp_header(const uint8_t* icmp_bytes);
 
+/*
+    ICMP Header Format
+
+    0                   1                   2                   3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |     Type      |     Code      |          Checksum             |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |           Identifier          |        Sequence Number        |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |     Data ...
+   +-+-+-+-+-
+*/
 
 /**
  * @brief Gets the ICMP Message Type.

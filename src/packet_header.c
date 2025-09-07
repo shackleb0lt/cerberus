@@ -38,7 +38,8 @@ uint16_t inet_cksum(const uint8_t *bytes, size_t len)
     // Sum 16-bit words
     while (len > 1)
     {
-        sum += *ptr++;
+        sum += (*ptr);
+        ptr++;
         len -= 2;
     }
 
@@ -52,7 +53,7 @@ uint16_t inet_cksum(const uint8_t *bytes, size_t len)
     sum = (sum & 0xffff) + (sum >> 16);
     sum = (sum & 0xffff) + (sum >> 16);
 
-    return (uint16_t)(~sum); // One's complement of the sum
+    return (uint16_t)~sum;
 }
 
 /*
@@ -100,17 +101,6 @@ uint8_t ipv4_get_ihl(const uint8_t *header_bytes)
 }
 
 /**
- * @brief Gets the IPv4 Type of Service (ToS) from the raw header.
- * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
- * @return The 8-bit ToS value.
- */
-uint8_t ipv4_get_tos(const uint8_t *header_bytes)
-{
-    assert(header_bytes != NULL);
-    return header_bytes[1];
-}
-
-/**
  * @brief Gets the IPv4 Total Length from the raw header.
  * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
  * @return The 16-bit Total Length in host byte order.
@@ -125,19 +115,6 @@ uint16_t ipv4_get_total_length(const uint8_t *header_bytes)
 }
 
 /**
- * @brief Gets the IPv4 Identification from the raw header.
- * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
- * @return The 16-bit Identification in host byte order.
- */
-uint16_t ipv4_get_identification(const uint8_t *header_bytes)
-{
-    uint16_t identification;
-    assert(header_bytes != NULL);
-    memcpy(&identification, header_bytes + 4, sizeof(uint16_t));
-    return NTOHS(identification);
-}
-
-/**
  * @brief Gets the IPv4 Flags from the raw header.
  * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
  * @return The 3-bit Flags value.
@@ -148,23 +125,6 @@ uint8_t ipv4_get_flags(const uint8_t *header_bytes)
     // Flags are in the upper 3 bits of byte 6
     // Mask with 0x07 (binary 111) to get 3 bits
     return (header_bytes[6] >> 5) & 0x07; 
-}
-
-/**
- * @brief Gets the IPv4 Fragment Offset from the raw header.
- * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
- * @return The 13-bit Fragment Offset in host byte order.
- */
-uint16_t ipv4_get_fragment_offset(const uint8_t *header_bytes)
-{
-    uint16_t combined;
-    assert(header_bytes != NULL);
-    memcpy(&combined, header_bytes + 6, sizeof(uint16_t));
-    combined = NTOHS(combined); // Convert to host byte order first
-
-    // Fragment Offset is the lower 13 bits
-    // Mask with 0x1FFF (binary 0001111111111111)
-    return combined & 0x1FFF;
 }
 
 /**
@@ -187,45 +147,6 @@ uint8_t ipv4_get_protocol(const uint8_t *header_bytes)
 {
     assert(header_bytes != NULL);
     return header_bytes[9];
-}
-
-/**
- * @brief Gets the IPv4 Header Checksum from the raw header.
- * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
- * @return The 16-bit Header Checksum in host byte order.
- */
-uint16_t ipv4_get_header_checksum(const uint8_t *header_bytes)
-{
-    uint16_t checksum;
-    assert(header_bytes != NULL);
-    memcpy(&checksum, header_bytes + 10, sizeof(uint16_t));
-    return NTOHS(checksum);
-}
-
-/**
- * @brief Gets the IPv4 Source IP Address from the raw header.
- * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
- * @return The 32-bit Source IP Address in host byte order.
- */
-uint32_t ipv4_get_src_ip_host(const uint8_t *header_bytes)
-{
-    uint32_t ip;
-    assert(header_bytes != NULL);
-    memcpy(&ip, header_bytes + 12, sizeof(uint32_t));
-    return NTOHL(ip);
-}
-
-/**
- * @brief Gets the IPv4 Destination IP Address from the raw header.
- * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
- * @return The 32-bit Destination IP Address in host byte order.
- */
-uint32_t ipv4_get_dest_ip_host(const uint8_t *header_bytes)
-{
-    uint32_t ip;
-    assert(header_bytes != NULL);
-    memcpy(&ip, header_bytes + 16, sizeof(uint32_t));
-    return NTOHL(ip);
 }
 
 /**
@@ -279,17 +200,6 @@ void ipv4_set_ihl(uint8_t *header_bytes, uint8_t ihl)
 }
 
 /**
- * @brief Sets the IPv4 Type of Service (ToS) in the raw header.
- * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
- * @param tos The 8-bit ToS value.
- */
-void ipv4_set_tos(uint8_t *header_bytes, uint8_t tos)
-{
-    assert(header_bytes != NULL);
-    header_bytes[1] = tos;
-}
-
-/**
  * @brief Sets the IPv4 Total Length in the raw header.
  * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
  * @param total_length The 16-bit Total Length in host byte order.
@@ -302,15 +212,18 @@ void ipv4_set_total_length(uint8_t *header_bytes, uint16_t total_length)
 }
 
 /**
- * @brief Sets the IPv4 Identification in the raw header.
+ * @brief Sets the Don't Fragment (DF) bit in the IPv4 header.
+ *
  * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
- * @param identification The 16-bit Identification in host byte order.
+ * @param flags The value to set the bit to (0 or 1).
  */
-void ipv4_set_identification(uint8_t *header_bytes, uint16_t identification)
+void ipv4_set_dont_frag_bit(uint8_t *header_bytes, uint8_t flags)
 {
-    uint16_t network_order_val = HTONS(identification);
     assert(header_bytes != NULL);
-    memcpy(header_bytes + 4, &network_order_val, sizeof(uint16_t));
+    if (flags)
+        header_bytes[6] = (header_bytes[6] | 0x40);
+    else
+        header_bytes[6] = (header_bytes[6] & 0xbf);
 }
 
 /**
@@ -323,31 +236,6 @@ void ipv4_set_flags(uint8_t *header_bytes, uint8_t flags)
     assert(header_bytes != NULL);
     // Preserve lower 5 bits of byte 6 (which are part of fragment offset)
     header_bytes[6] = (header_bytes[6] & 0x1F) | ((flags & 0x07) << 5);
-}
-
-/**
- * @brief Sets the IPv4 Fragment Offset in the raw header.
- * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
- * @param fragment_offset The 13-bit Fragment Offset in host byte order.
- */
-void ipv4_set_fragment_offset(uint8_t *header_bytes, uint16_t fragment_offset)
-{
-    uint16_t new_combined;
-    uint16_t network_order_val;
-    uint16_t current_flags_and_offset;
-
-    assert(header_bytes != NULL);
-
-    // The Flags and Fragment Offset share 2 bytes (bytes 6 and 7).
-    // Extract current flags, combine with new fragment offset, then write back.
-    memcpy(&current_flags_and_offset, header_bytes + 6, sizeof(uint16_t));
-    current_flags_and_offset = NTOHS(current_flags_and_offset); // Convert to host order
-
-    // Clear old fragment offset, then set new one, keeping flags
-    new_combined = (current_flags_and_offset & 0xE000) | (fragment_offset & 0x1FFF);
-
-    network_order_val = HTONS(new_combined);
-    memcpy(header_bytes + 6, &network_order_val, sizeof(uint16_t));
 }
 
 /**
@@ -370,48 +258,6 @@ void ipv4_set_protocol(uint8_t *header_bytes, uint8_t protocol)
 {
     assert(header_bytes != NULL);
     header_bytes[9] = protocol;
-}
-
-/**
- * @brief Computes and sets the IPv4 Header Checksum in the raw header.
- * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
- */
-void ipv4_set_header_checksum(uint8_t *header_bytes)
-{
-    uint16_t network_order_val;
-    assert(header_bytes != NULL);
-
-    header_bytes[10] = 0x0;
-    header_bytes[11] = 0x0;
-
-    network_order_val = HTONS(inet_cksum(header_bytes, IPV4_HDR_LEN));
-    memcpy(header_bytes + 10, &network_order_val, sizeof(uint16_t));
-}
-
-/**
- * @brief Sets the IPv4 Source IP Address in the raw header.
- * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
- * @param src_ip The 32-bit Source IP Address in host byte order.
- */
-void ipv4_set_src_ip_host(uint8_t *header_bytes, uint32_t src_ip)
-{
-    uint32_t network_order_val;
-    assert(header_bytes != NULL);
-    network_order_val = HTNOL(src_ip);
-    memcpy(header_bytes + 12, &network_order_val, sizeof(uint32_t));
-}
-
-/**
- * @brief Sets the IPv4 Destination IP Address in the raw header.
- * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
- * @param dest_ip The 32-bit Destination IP Address in host byte order.
- */
-void ipv4_set_dest_ip_host(uint8_t *header_bytes, uint32_t dest_ip)
-{
-    uint32_t network_order_val;
-    assert(header_bytes != NULL);
-    network_order_val = HTNOL(dest_ip);
-    memcpy(header_bytes + 16, &network_order_val, sizeof(uint32_t));
 }
 
 /**
@@ -442,12 +288,11 @@ void ipv4_set_dest_ip(uint8_t *header_bytes, uint32_t dest_ip)
  */
 void print_ip_address(uint32_t ip, bool with_newline)
 {
-    ip = NTOHL(ip);
     printf("%u.%u.%u.%u",
-           (ip >> 24) & 0xFF,
-           (ip >> 16) & 0xFF,
+           (ip >> 0) & 0xFF,
            (ip >> 8) & 0xFF,
-           (ip >> 0) & 0xFF);
+           (ip >> 16) & 0xFF,
+           (ip >> 24) & 0xFF);
     if (with_newline)
         printf("\n");
 }
@@ -463,24 +308,20 @@ void print_ip_header(const uint8_t *ipv4_header)
     printf("\n------ Ipv4 Header [%p] ------\n", ipv4_header);
     printf("Version: %u\n", ipv4_get_version(ipv4_header));
     printf("IHL: %u (%u bytes)\n", ipv4_get_ihl(ipv4_header), ipv4_get_ihl(ipv4_header) * 4);
-    printf("Type of Service: 0x%02x\n", ipv4_get_tos(ipv4_header));
     printf("Total Length: %u\n", ipv4_get_total_length(ipv4_header));
-    printf("Identification: 0x%04x\n", ipv4_get_identification(ipv4_header));
     printf("Flags: 0x%x (Reserved: %u, DF: %u, MF: %u)\n",
            ipv4_get_flags(ipv4_header),
            (ipv4_get_flags(ipv4_header) >> 2) & 0x1, // Reserved
            (ipv4_get_flags(ipv4_header) >> 1) & 0x1, // DF
            ipv4_get_flags(ipv4_header) & 0x1         // MF
     );
-    printf("Fragment Offset: %u\n", ipv4_get_fragment_offset(ipv4_header));
     printf("TTL: %u\n", ipv4_get_ttl(ipv4_header));
     printf("Protocol: %u\n", ipv4_get_protocol(ipv4_header));
-    printf("Header Checksum: 0x%04x\n", ipv4_get_header_checksum(ipv4_header));
     printf("Source IP: ");
-    print_ip_address(ipv4_get_src_ip_host(ipv4_header), false);
+    print_ip_address(ipv4_get_src_ip(ipv4_header), false);
     printf("\n");
     printf("Destination IP: ");
-    print_ip_address(ipv4_get_dest_ip_host(ipv4_header), false);
+    print_ip_address(ipv4_get_dest_ip(ipv4_header), false);
     printf("\n");
     printf("\n--------------------------------\n");
 }
@@ -597,7 +438,7 @@ void icmp_set_checksum(uint8_t *icmp_bytes, size_t len)
     
     icmp_bytes[2] = 0x0;
     icmp_bytes[3] = 0x0;
-    network_order_val = HTONS(inet_cksum(icmp_bytes, len));
+    network_order_val = inet_cksum(icmp_bytes, len);
     memcpy(icmp_bytes + 2, &network_order_val, sizeof(uint16_t));
 }
 
