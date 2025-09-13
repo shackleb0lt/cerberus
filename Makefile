@@ -23,11 +23,11 @@ SRC_FILES := $(wildcard $(SRC_DIR)/*.c)
 SRC_OBJECTS := $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/%.o, $(SRC_FILES))
 
 PING_OBJS := bld/packet_header.o bld/common.o bld/ping.o
-# TRACERT_OBJS := bld/packet_header.o bld/common.o bld/trace.o
+TRACERT_OBJS := bld/packet_header.o bld/common.o bld/trace.o
 
 # Final executable
 PING_TARGET := $(BUILD_DIR)/ping
-# TRACERT_TARGET := $(BUILD_DIR)/tracert
+TRACERT_TARGET := $(BUILD_DIR)/tracert
 
 # Default PING_TARGET
 .PHONY: all
@@ -37,7 +37,7 @@ all: debug
 .PHONY: debug
 debug: CFLAGS += $(DEBUG_FLAGS)
 debug: LDFLAGS += $(LDLIBS)
-debug: $(PING_TARGET) # $(TRACERT_TARGET)
+debug: $(PING_TARGET) $(TRACERT_TARGET)
 
 # Release build PING_TARGET
 .PHONY: release

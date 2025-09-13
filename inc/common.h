@@ -51,26 +51,7 @@
 
 #define SOCKADDR_SIZE sizeof(struct sockaddr_in)
 
-typedef struct
-{
-    int sock_fd;
-
-    uint32_t src_addr;
-    uint32_t dest_addr;
-
-    uint64_t pkt_sent;
-    uint64_t pkt_recv;
-
-    uint8_t ttl_val;
-
-    uint16_t icmp_ident;
-
-    char ip_str[INET6_ADDRSTRLEN];
-} conn_params;
-
 int create_raw_socket();
-ssize_t send_pkt(conn_params* args, uint8_t icmp_buf[], size_t buf_len);
-ssize_t recv_pkt(conn_params* args, uint8_t icmp_buf[], size_t buf_len);
 
 int get_dest_addr(const char *input, uint32_t *dest_addr, char *ip_str);
 int get_src_addr(uint32_t *src_addr, uint32_t *dest_addr);
