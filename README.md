@@ -42,14 +42,15 @@ Execution flow of ping is as follows,
 Below are the parameters that can be passed to this utility,
 
     Usage:
-    ./bld/ping [options] <destination>
+    ping [options] <hostname or IPv4 address>
 
     Options:
-    <destination>      dns name or ip address
-    -c <count>         number of packets sent
-    -i <interval>      time in milliseconds between each ping
-    -t <ttl value>     configure time to live range 1 to 64
+    -c <count>         Stop after <count> ping packets 
+    -i <interval>      milliseconds between each packet
+    -t <ttl value>     configure time to live (1-64)
+    -s <size>          configure icmp data payload size
     -q                 quiet output
+    -v                 verbose output
     -h                 show usage and exit
 
 Sample command to check reachability of an IP address,
@@ -71,21 +72,19 @@ If the ICMP packets TTL expires enroute then we receive ICMP Time Exceeded code 
 ### Usage
 
     Usage:
-    ./bld/tracert [options] <destination>
+    tracert [options] <hostname or IPv4 address>
 
     Options:
-    <destination>      dns name or ip address
-    -t <ttl value>     configure time to live
+    -m <num>           Max number of hops
     -h                 show usage and exit
 
 Sample command to trace the route,
 
     ./bld/tracert 1.1.1.1
-    ./bld/tracert -t 2 1.1.1.1
+    ./bld/tracert -m 2 1.1.1.1
 
 ## Future Enhancement Ideas
 
-- Decouple the packet sending and receiving
 - Allow configuring number of packets being sent
 - Resolve public IP address to hostname 
 - Allow option for UDP based pinging
