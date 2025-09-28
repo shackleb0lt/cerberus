@@ -29,6 +29,8 @@ TRACERT_OBJS := bld/packet_header.o bld/common.o bld/trace.o
 PING_TARGET := $(BUILD_DIR)/ping
 TRACERT_TARGET := $(BUILD_DIR)/tracert
 
+INSTALL_PATH := ~/.local/bin/
+
 # Default PING_TARGET
 .PHONY: all
 all: debug
@@ -63,6 +65,13 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
 $(BUILD_DIR):
 	@echo "Creating build directory $(BUILD_DIR)"
 	mkdir -p $(BUILD_DIR)
+
+install: $(TRACERT_TARGET) $(PING_TARGET)
+	cp $(PING_TARGET) $(INSTALL_PATH)/cping
+	cp $(TRACERT_TARGET) $(INSTALL_PATH)/tracert
+
+	sudo setcap cap_net_raw+ep $(INSTALL_PATH)/cping
+	sudo setcap cap_net_raw+ep $(INSTALL_PATH)/tracert
 
 # Clean up build files
 .PHONY: clean
