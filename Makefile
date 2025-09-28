@@ -47,7 +47,7 @@ release: $(PING_TARGET) $(TRACERT_TARGET)
 
 $(TRACERT_TARGET) : $(SRC_OBJECTS)
 	@echo "Linking executable $(TRACERT_TARGET)"
-	$(CC) $(CFLAGS) $(TRACERT_OBJS) $(LDFLAGS) -o $(TRACERT_TARGET)
+	$(CC) $(CFLAGS) $(TRACERT_OBJS) $(LDFLAGS) -lpthread -o $(TRACERT_TARGET)
 
 # Build executable PING_TARGET
 $(PING_TARGET): $(SRC_OBJECTS)

@@ -115,6 +115,19 @@ uint16_t ipv4_get_total_length(const uint8_t *header_bytes)
 }
 
 /**
+ * @brief Gets the IPv4 Identification from the raw header.
+ * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
+ * @return The 16-bit Identification in host byte order.
+ */
+uint16_t ipv4_get_identification(const uint8_t *header_bytes)
+{
+    uint16_t identification;
+    assert(header_bytes != NULL);
+    memcpy(&identification, header_bytes + 4, sizeof(uint16_t));
+    return NTOHS(identification);
+}
+
+/**
  * @brief Gets the IPv4 Flags from the raw header.
  * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
  * @return The 3-bit Flags value.
@@ -200,6 +213,18 @@ void ipv4_set_ihl(uint8_t *header_bytes, uint8_t ihl)
 }
 
 /**
+ * @brief Sets the DSCP (Differentiated Services Code Point) bits in the IPv4 header.
+ * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
+ * @param dscp The 6-bit DSCP value to set (0-63).
+ */
+void ipv4_set_dscp(uint8_t *header_bytes, uint8_t dscp)
+{
+    assert(header_bytes != NULL);
+    // Preserve lower 2 bits (ECN)
+    header_bytes[1] = (header_bytes[1] & 0x03) | ((dscp & 0x3F) << 2);
+}
+
+/**
  * @brief Sets the IPv4 Total Length in the raw header.
  * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
  * @param total_length The 16-bit Total Length in host byte order.
@@ -209,6 +234,18 @@ void ipv4_set_total_length(uint8_t *header_bytes, uint16_t total_length)
     uint16_t network_order_val = HTONS(total_length);
     assert(header_bytes != NULL);
     memcpy(header_bytes + 2, &network_order_val, sizeof(uint16_t));
+}
+
+/**
+ * @brief Sets the IPv4 Identification in the raw header.
+ * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
+ * @param identification The 16-bit Identification in host byte order.
+ */
+void ipv4_set_identification(uint8_t *header_bytes, uint16_t identification)
+{
+    uint16_t network_order_val = HTONS(identification);
+    assert(header_bytes != NULL);
+    memcpy(header_bytes + 4, &network_order_val, sizeof(uint16_t));
 }
 
 /**

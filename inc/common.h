@@ -41,8 +41,12 @@
 #include <netinet/in.h>
 #include <netinet/ip_icmp.h>
 
-#define ONE_MSEC 1000
-#define ONE_SEC  1000000
+#define ONE_SEC_TO_MSEC 1000
+#define ONE_MSEC_TO_USEC 1000
+#define ONE_SEC_TO_USEC 1000000
+
+#define BLOCKING_SOCK SIZE_MAX
+#define NON_BLOCKING_SOCK 0
 
 #define DEFAULT_COUNT 1000
 
@@ -51,7 +55,7 @@
 
 #define SOCKADDR_SIZE sizeof(struct sockaddr_in)
 
-int create_raw_socket();
+int create_raw_socket(size_t tout_ms);
 
 int get_dest_addr(const char *input, uint32_t *dest_addr, char *ip_str);
 int get_src_addr(uint32_t *src_addr, uint32_t *dest_addr);

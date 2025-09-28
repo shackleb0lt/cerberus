@@ -23,6 +23,8 @@
 
 #include "common.h"
 
+#include <fcntl.h>
+
 /**
  * @brief Parses a string to an unsigned 64-bit integer,
  * validating it against a specified range.
@@ -142,19 +144,45 @@ void print_icmp_error(const uint8_t *bytes)
 }
 
 /**
+ * Makes an existing socket non blocking
+ * @param sock_fd socket file descriptor
+ * @return 0 on success -1 otherwise
+ */
+int make_nonblocking(int sock_fd)
+{
+    int flags = fcntl(sock_fd, F_GETFL, 0);
+    if (flags == -1)
+    {
+        perror("fcntl(F_GETFL)");
+        return -1;
+    }
+
+    if (fcntl(sock_fd, F_SETFL, flags | O_NONBLOCK) == -1)
+    {
+        perror("fcntl(F_SETFL)");
+        return -1;
+    }
+    return 0;
+}
+
+/**
  * Creates a RAW ipv4 socket allowing handcrafted 
  * ipv4 header and icmp header, requires root priveleges
+ * @param tout_ms socket level timeout in milli seconds 
+ * 0 for non blocking or SIZE_MAX for blocking
  */
-int create_raw_socket()
+int create_raw_socket(size_t tout_ms)
 {
     int opt = 1;
     int ret = 0;
     int sock_fd = -1;
-    struct timeval tv_out =
-    {
-        .tv_sec = 2,
-        .tv_usec = 0
-    };
+    struct timeval tv_out = {0};
+
+    // Divide # of millisec by 1000 to get seconds
+    tv_out.tv_sec = tout_ms / ONE_SEC_TO_MSEC;
+
+    // Get remaining millsec and by 1000 to get micro seconds
+    tv_out.tv_usec = (tout_ms % ONE_SEC_TO_MSEC) * ONE_MSEC_TO_USEC; 
 
     // Open raw socket to send packets into
     sock_fd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
@@ -173,19 +201,32 @@ int create_raw_socket()
         return -1;
     }
 
+    if (setgid(getgid()) != 0 || setuid(getuid()) != 0)
+    {
+        perror("Unable to drop priveleges");
+        close(sock_fd);
+        return -1;
+    }
+
+    if (tout_ms == BLOCKING_SOCK)
+        return sock_fd;
+
+    else if(tout_ms == NON_BLOCKING_SOCK)
+    {
+        ret = make_nonblocking(sock_fd);
+        if (ret)
+        {
+            close(sock_fd);
+            return -1;
+        }
+        return sock_fd;
+    }
+
     // Set timeout at socket level to avoid handling it at user level
     ret = setsockopt(sock_fd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv_out, sizeof tv_out);
     if (ret < 0)
     {
         perror("Ping interval setting failed");
-        close(sock_fd);
-        return -1;
-    }
-
-    // Drop root priveleges
-    if (setgid(getgid()) != 0 || setuid(getuid()) != 0)
-    {
-        perror("Unable to drop priveleges");
         close(sock_fd);
         return -1;
     }

@@ -133,6 +133,13 @@ uint16_t ipv4_get_total_length(const uint8_t *header_bytes);
 uint8_t ipv4_get_flags(const uint8_t *header_bytes);
 
 /**
+ * @brief Gets the IPv4 Identification from the raw header.
+ * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
+ * @return The 16-bit Identification in host byte order.
+ */
+uint16_t ipv4_get_identification(const uint8_t *header_bytes);
+
+/**
  * @brief Gets the IPv4 Time to Live (TTL) from the raw header.
  * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
  * @return The 8-bit TTL value.
@@ -175,11 +182,25 @@ void ipv4_set_version(uint8_t *header_bytes, uint8_t version);
 void ipv4_set_ihl(uint8_t *header_bytes, uint8_t ihl);
 
 /**
+ * @brief Sets the DSCP (Differentiated Services Code Point) bits in the IPv4 header.
+ * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
+ * @param dscp The 6-bit DSCP value to set (0-63).
+ */
+void ipv4_set_dscp(uint8_t *header_bytes, uint8_t dscp);
+
+/**
  * @brief Sets the IPv4 Total Length in the raw header.
  * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
  * @param total_length The 16-bit Total Length in host byte order.
  */
 void ipv4_set_total_length(uint8_t *header_bytes, uint16_t total_length);
+
+/**
+ * @brief Sets the IPv4 Identification in the raw header.
+ * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
+ * @param identification The 16-bit Identification in host byte order.
+ */
+void ipv4_set_identification(uint8_t *header_bytes, uint16_t identification);
 
 /**
  * @brief Sets the Don't Fragment (DF) bit in the IPv4 header.

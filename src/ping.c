@@ -52,7 +52,6 @@ typedef struct
 
 } ping_params;
 
-
 bool is_run = true;
 
 ping_params ping_args = {0};
@@ -154,6 +153,7 @@ recv_again:
     bytes_read = recv(ping_args.sock_fd, buf, UINT16_MAX, 0);
     if (bytes_read < 0)
         return -1;
+
     if (bytes_read <= 20)
     {
 #ifndef NDEBUG
@@ -205,10 +205,9 @@ ssize_t send_pkt(uint8_t icmp_buf[], size_t buf_len)
 
     memcpy(buf + IPV4_HDR_LEN, icmp_buf, buf_len);
     ret = sendto(ping_args.sock_fd, buf, tot_len, 0, (struct sockaddr*) &send_addr, SOCKADDR_SIZE);
-#ifndef NDEBUG
+
     if (ret < 0)
         fprintf(stderr, "sendto: [ret=%ld] [tot_len = %lu] %s", ret, tot_len, strerror(errno));
-#endif
     return ret;
 }
 
@@ -249,7 +248,7 @@ void ping_loop()
         ping_args.pkt_sent++;
 
     recv_again:
-        ret = recv_pkt(icmp_in, UINT16_MAX);
+        ret = recv_pkt(icmp_in, MAX_DATA_LEN + ICMP_HDR_LEN);
         if (ret < 0)
         {
             if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
@@ -257,8 +256,6 @@ void ping_loop()
                 perror("recv");
                 usleep(ping_args.interval);
             }
-            else break;
-
             // send next packet if timeout is reached
             continue;
         }
@@ -304,10 +301,10 @@ int main(int argc, char *argv[])
 
     memset(&ping_args, 0, sizeof(ping_params));
 
-    ping_args.interval = ONE_SEC;
+    ping_args.interval = ONE_SEC_TO_USEC;
     ping_args.ttl_val  = DEFAULT_TTL;
     ping_args.count    = DEFAULT_COUNT;
-    ping_args.min_time = ONE_SEC << 1;
+    ping_args.min_time = 4 * ONE_SEC_TO_MSEC;
     ping_args.icmp_ident = (uint16_t) getpid();
 
     while ((ret = getopt(argc, argv, "c:i:t:s:qvh")) != -1)
@@ -327,12 +324,12 @@ int main(int argc, char *argv[])
             }
             case 'i':
             {
-                if (!is_positive_integer(optarg, "interval", 1, INT32_MAX / ONE_MSEC, &res))
+                if (!is_positive_integer(optarg, "interval", 1, INT32_MAX / ONE_MSEC_TO_USEC, &res))
                 {
                     print_usage(argv[0]);
                     return EXIT_FAILURE;
                 }
-                ping_args.interval = ((uint32_t) res)* ONE_MSEC; 
+                ping_args.interval = ((uint32_t) res)* ONE_MSEC_TO_USEC; 
                 break;
             }
             case 't':
@@ -399,7 +396,7 @@ int main(int argc, char *argv[])
     if(ret != 0)
         return EXIT_FAILURE;
 
-    ping_args.sock_fd = create_raw_socket();
+    ping_args.sock_fd = create_raw_socket(ONE_SEC_TO_MSEC);
     if (ping_args.sock_fd < 0)
         return EXIT_FAILURE;
     
@@ -409,5 +406,9 @@ int main(int argc, char *argv[])
     print_stats(hostname);
 
     close(ping_args.sock_fd);
+
+    fflush(stdout);
+    fflush(stderr);
+
     return EXIT_SUCCESS;
 }
