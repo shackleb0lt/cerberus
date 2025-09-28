@@ -253,6 +253,7 @@ int get_dest_addr(const char *input, uint32_t *dest_addr, char *ipstr)
     if (ret == 1)
     {
         strncpy(ipstr, input, INET6_ADDRSTRLEN - 1);
+        ipstr[INET6_ADDRSTRLEN - 1] = '\0';
         return 0;
     }
 

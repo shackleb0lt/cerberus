@@ -67,7 +67,7 @@ trace_state_t g_trace_state;
 pthread_cond_t g_display_cond;
 pthread_mutex_t g_data_lock;
 
-bool g_is_timeout = false;
+volatile sig_atomic_t g_is_timeout = false;
 
 /**
  * Prints the usage of the executable binary
@@ -85,8 +85,6 @@ void timeout_handler(int sig)
 {
     (void) sig;
     g_is_timeout = true;
-
-    // printf("%s: signal = %s\n", __func__, strsignal(sig));
 }
 
 int setup_timeout_handler()
@@ -395,9 +393,9 @@ void trace_print_task()
 
     uint8_t hop_num = 1;
     size_t pkt_num = 0;
-    
+
     pthread_mutex_lock(&g_data_lock);
-    while(g_trace_state == TRACE_PINGING)
+    while (g_trace_state == TRACE_PINGING)
     {
         hop_ptr = &(trace_args.hop_arr[hop_num - 1]);
         if (hop_ptr->hop_addr && hop_ptr->delta[pkt_num])
@@ -405,7 +403,7 @@ void trace_print_task()
             if (pkt_num == 0)
                 printf("%3u", hop_num);
             printf(" %7.2lf ms", hop_ptr->delta[pkt_num]);
-            
+
             pkt_num++;
             if (pkt_num == TOTAL_PACKET_NUM)
             {
@@ -426,13 +424,13 @@ void trace_print_task()
     if (g_trace_state == TRACE_ERROR)
         return;
 
-    for(; hop_num <= trace_args.dist_to_host; hop_num++)
+    for (; hop_num <= trace_args.dist_to_host; hop_num++)
     {
         hop_ptr = &(trace_args.hop_arr[hop_num - 1]);
         if (pkt_num == 0)
             printf("%3u", hop_num);
 
-        for(; pkt_num < TOTAL_PACKET_NUM; pkt_num++)
+        for (; pkt_num < TOTAL_PACKET_NUM; pkt_num++)
         {
             if (hop_ptr->hop_addr && hop_ptr->delta[pkt_num])
             {

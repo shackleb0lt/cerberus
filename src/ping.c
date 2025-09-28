@@ -52,7 +52,7 @@ typedef struct
 
 } ping_params;
 
-bool is_run = true;
+volatile sig_atomic_t is_run = true;
 
 ping_params ping_args = {0};
 
@@ -412,3 +412,5 @@ int main(int argc, char *argv[])
 
     return EXIT_SUCCESS;
 }
+
+// Add recv_addr in icmp error messages
