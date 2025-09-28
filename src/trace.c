@@ -265,7 +265,7 @@ void *trace_rx_task(void *arg)
     uint8_t hop_num = 0;
 
     uint32_t recv_addr = 0;
-    uint16_t pkt_num = 0;
+    uint8_t pkt_num = 0;
 
     uint8_t *icmp_sent = NULL;
     uint8_t icmp_buf[MAX_DATA_LEN + ICMP_HDR_LEN] = {0};
@@ -314,7 +314,7 @@ void *trace_rx_task(void *arg)
             icmp_get_identifier(icmp_buf) == trace_args.icmp_ident)
         {
             seq_num = icmp_get_sequence(icmp_buf);
-            hop_num = (uint8_t) ((seq_num - 1) / 3) + 1;
+            hop_num = (uint8_t)(((seq_num - 1) / 3) + 1);
 
             if (hop_num <= trace_args.dist_to_host)
             {
@@ -322,7 +322,7 @@ void *trace_rx_task(void *arg)
                 pthread_mutex_lock(&g_data_lock);
 
                 trace_args.dist_to_host = hop_num;
-                pkt_num  = (seq_num - 1) % 3;
+                pkt_num = (uint8_t)((seq_num - 1) % 3);
 
                 hop_ptr = &(trace_args.hop_arr[hop_num - 1]);
 
@@ -343,14 +343,14 @@ void *trace_rx_task(void *arg)
             icmp_get_identifier(icmp_sent) == trace_args.icmp_ident)
         {
             seq_num = icmp_get_sequence(icmp_sent);
-            hop_num = (uint8_t)  ((seq_num - 1) / 3) + 1;
+            hop_num = (uint8_t)(((seq_num - 1) / 3) + 1);
 
             if (hop_num <= trace_args.dist_to_host)
             {
                 alarm(TRACE_TIMEOUT_SEC);
                 pthread_mutex_lock(&g_data_lock);
 
-                pkt_num  = (seq_num - 1) % 3;
+                pkt_num  = (uint8_t)((seq_num - 1) % 3);
                 hop_ptr = &(trace_args.hop_arr[hop_num - 1]);
 
                 delta = ((double)(time_end.tv_sec - hop_ptr->time_start[pkt_num].tv_sec)) * 1000.0;
