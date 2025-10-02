@@ -577,7 +577,6 @@ int main(int argc, char *argv[])
             case 'v':
             {
                 is_verbose = true;
-                init_log_file();
                 break;
             }
             case '?':
@@ -608,6 +607,8 @@ int main(int argc, char *argv[])
     trace_args.sock_fd = create_raw_socket(BLOCKING_SOCK);
     if (trace_args.sock_fd < 0)
         return EXIT_FAILURE;
+    
+    init_log_file();
 
     trace_args.hop_arr = (hop_param_t *)calloc(trace_args.hop_arr_size, sizeof(hop_param_t));
     if (trace_args.hop_arr == NULL)
