@@ -137,7 +137,7 @@ uint8_t ipv4_get_flags(const uint8_t *header_bytes)
     assert(header_bytes != NULL);
     // Flags are in the upper 3 bits of byte 6
     // Mask with 0x07 (binary 111) to get 3 bits
-    return (header_bytes[6] >> 5) & 0x07; 
+    return (header_bytes[6] >> 5) & 0x07;
 }
 
 /**
@@ -163,7 +163,7 @@ uint8_t ipv4_get_protocol(const uint8_t *header_bytes)
 }
 
 /**
- * @brief Gets the IPv4 Source IP Address from the raw header 
+ * @brief Gets the IPv4 Source IP Address from the raw header
  * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
  * @return The 32-bit Source IP Address in network byte order.
  */
@@ -472,7 +472,7 @@ void icmp_set_checksum(uint8_t *icmp_bytes, size_t len)
 
     if (len == 0)
         len = ICMP_HDR_LEN;
-    
+
     icmp_bytes[2] = 0x0;
     icmp_bytes[3] = 0x0;
     network_order_val = inet_cksum(icmp_bytes, len);

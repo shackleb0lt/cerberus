@@ -63,7 +63,7 @@ int get_src_addr(uint32_t *src_addr, uint32_t *dest_addr);
 void generate_icmp_data(uint8_t buf[], size_t len);
 void print_icmp_error(const uint8_t *bytes);
 
-bool is_positive_integer(const char *str, const char *type, 
+bool is_positive_integer(const char *str, const char *type,
     uint64_t min, uint64_t max, uint64_t *val);
 
 #endif

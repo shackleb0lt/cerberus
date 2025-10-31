@@ -37,10 +37,10 @@
  * false otherwise, printing an error to stderr.
  */
 bool is_positive_integer(
-    const char *str, 
-    const char *type, 
-    uint64_t min, 
-    uint64_t max, 
+    const char *str,
+    const char *type,
+    uint64_t min,
+    uint64_t max,
     uint64_t *val)
 {
     char *endptr = NULL;
@@ -166,9 +166,9 @@ int make_nonblocking(int sock_fd)
 }
 
 /**
- * Creates a RAW ipv4 socket allowing handcrafted 
+ * Creates a RAW ipv4 socket allowing handcrafted
  * ipv4 header and icmp header, requires root priveleges
- * @param tout_ms socket level timeout in milli seconds 
+ * @param tout_ms socket level timeout in milli seconds
  * 0 for non blocking or SIZE_MAX for blocking
  */
 int create_raw_socket(size_t tout_ms)
@@ -182,7 +182,7 @@ int create_raw_socket(size_t tout_ms)
     tv_out.tv_sec = tout_ms / ONE_SEC_TO_MSEC;
 
     // Get remaining millsec and by 1000 to get micro seconds
-    tv_out.tv_usec = (tout_ms % ONE_SEC_TO_MSEC) * ONE_MSEC_TO_USEC; 
+    tv_out.tv_usec = (tout_ms % ONE_SEC_TO_MSEC) * ONE_MSEC_TO_USEC;
 
     // Open raw socket to send packets into
     sock_fd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
@@ -257,7 +257,7 @@ int get_dest_addr(const char *input, uint32_t *dest_addr, char *ipstr)
         return 0;
     }
 
-    // If a hostname was provided retreive it's ip address 
+    // If a hostname was provided retreive it's ip address
     memset(&hint, 0, sizeof(struct addrinfo));
     hint.ai_family = AF_INET;
     hint.ai_socktype = SOCK_RAW;
@@ -319,7 +319,7 @@ int get_src_addr(uint32_t *src_addr, uint32_t *dest_addr)
         close(sock_fd);
         return -1;
     }
-    
+
     (*src_addr) = local_addr.sin_addr.s_addr;
     close(sock_fd);
     return 0;

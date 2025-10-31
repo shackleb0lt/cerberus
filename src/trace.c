@@ -314,12 +314,12 @@ bool is_rx_done()
         hop_ptr = trace_args.hop_arr + hop_num;
 
         if (hop_ptr->hop_addr == 0 ||
-            hop_ptr->delta[0] == 0 || 
+            hop_ptr->delta[0] == 0 ||
             hop_ptr->delta[1] == 0 ||
             hop_ptr->delta[2] == 0)
             return false;
     }
-    
+
     if (hop_ptr->hop_addr == trace_args.dest_addr)
     {
         g_trace_state = TRACE_DONE;
@@ -607,7 +607,7 @@ int main(int argc, char *argv[])
     trace_args.sock_fd = create_raw_socket(BLOCKING_SOCK);
     if (trace_args.sock_fd < 0)
         return EXIT_FAILURE;
-    
+
     init_log_file();
 
     trace_args.hop_arr = (hop_param_t *)calloc(trace_args.hop_arr_size, sizeof(hop_param_t));

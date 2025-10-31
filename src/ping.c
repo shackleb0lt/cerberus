@@ -47,7 +47,7 @@ typedef struct
     double min_time;
     double max_time;
 
-    bool is_quiet; 
+    bool is_quiet;
     bool is_verbose;
 
 } ping_params;
@@ -176,7 +176,7 @@ recv_again:
     {
         bytes_read = (ssize_t) buf_len;
     }
-    
+
     memcpy(icmp_buf, buf + offset, (size_t) bytes_read);
     return bytes_read;
 }
@@ -229,7 +229,7 @@ void ping_loop()
     {
         generate_icmp_data(icmp_out, ping_args.data_len);
     }
-    
+
     icmp_set_type(icmp_out, ICMP_ECHO);
     icmp_set_identifier(icmp_out, ping_args.icmp_ident);
 
@@ -285,7 +285,7 @@ void ping_loop()
 
         if (!ping_args.is_quiet)
         {
-            printf("%ld bytes from %s: icmp_seq=%d time=%.2lfms\n", 
+            printf("%ld bytes from %s: icmp_seq=%d time=%.2lfms\n",
                 ret, ping_args.ip_str, ping_args.seq_num, delta);
         }
 
@@ -329,7 +329,7 @@ int main(int argc, char *argv[])
                     print_usage(argv[0]);
                     return EXIT_FAILURE;
                 }
-                ping_args.interval = ((uint32_t) res)* ONE_MSEC_TO_USEC; 
+                ping_args.interval = ((uint32_t) res)*ONE_MSEC_TO_USEC;
                 break;
             }
             case 't':
@@ -399,7 +399,7 @@ int main(int argc, char *argv[])
     ping_args.sock_fd = create_raw_socket(ONE_SEC_TO_MSEC);
     if (ping_args.sock_fd < 0)
         return EXIT_FAILURE;
-    
+
     printf("Pinging %s (%s)\n", hostname, ping_args.ip_str);
 
     ping_loop();

@@ -21,7 +21,7 @@
  * SOFTWARE.
  */
 
-#ifndef PACKET_HEADER_H 
+#ifndef PACKET_HEADER_H
 #define PACKET_HEADER_H
 
 #include <stdio.h>
@@ -154,7 +154,7 @@ uint8_t ipv4_get_ttl(const uint8_t *header_bytes);
 uint8_t ipv4_get_protocol(const uint8_t *header_bytes);
 
 /**
- * @brief Gets the IPv4 Source IP Address from the raw header 
+ * @brief Gets the IPv4 Source IP Address from the raw header
  * @param header_bytes Pointer to the uint8_t array representing the IPv4 header.
  * @return The 32-bit Source IP Address in network byte order.
  */
